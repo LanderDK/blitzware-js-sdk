@@ -6019,7 +6019,7 @@
         return "".concat(baseUrl, "?").concat(queryParams.toString());
     };
     var fetchUserInfo = function (accessToken) { return __awaiter(void 0, void 0, void 0, function () {
-        var response, error_1;
+        var response;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -6033,8 +6033,7 @@
                     response = _a.sent();
                     return [2 /*return*/, response.data];
                 case 2:
-                    error_1 = _a.sent();
-                    console.error(error_1);
+                    _a.sent();
                     throw new Error("Failed to fetch user info");
                 case 3: return [2 /*return*/];
             }
@@ -6145,14 +6144,13 @@
                                 setToken("refresh_token", refresh_token);
                             return [3 /*break*/, 7];
                         case 4:
-                            this.setIsAuthenticated(isTokenValid());
                             if (!isTokenValid()) return [3 /*break*/, 6];
                             return [4 /*yield*/, fetchUserInfo(getToken("access_token"))];
                         case 5:
                             data = _a.sent();
                             this.setUser(data);
-                            this.setIsLoading(false);
-                            return [3 /*break*/, 7];
+                            this.setIsAuthenticated(true);
+                            _a.label = 6;
                         case 6:
                             this.setIsLoading(false);
                             _a.label = 7;
