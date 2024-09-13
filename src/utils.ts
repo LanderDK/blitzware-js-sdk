@@ -36,7 +36,6 @@ export const fetchUserInfo = async (
     );
     return response.data;
   } catch (error) {
-    console.error(error);
     throw new Error("Failed to fetch user info");
   }
 };

@@ -25,7 +25,7 @@ export class BlitzWareAuth {
     this.state = getState() || nanoid();
   }
 
-  public async handleRedirect(): Promise<void> {
+  async handleRedirect(): Promise<void> {
     if (hasAuthParams()) {
       const urlParams = new URLSearchParams(window.location.search);
 
@@ -51,25 +51,23 @@ export class BlitzWareAuth {
       const refresh_token = urlParams.get("refresh_token");
       if (refresh_token) setToken("refresh_token", refresh_token);
     } else {
-      this.setIsAuthenticated(isTokenValid());
       if (isTokenValid()) {
         const data = await fetchUserInfo(getToken("access_token") as string);
         this.setUser(data);
-        this.setIsLoading(false);
-      } else {
-        this.setIsLoading(false);
+        this.setIsAuthenticated(true);
       }
+      this.setIsLoading(false);
     }
   }
 
-  public login(): void {
+  login(): void {
     const newState = nanoid();
     setState(newState);
     const authUrl = generateAuthUrl(this.authParams, newState);
     window.location.href = authUrl;
   }
 
-  public logout(): void {
+  logout(): void {
     removeToken("access_token");
     removeToken("refresh_token");
     removeState();
@@ -82,7 +80,7 @@ export class BlitzWareAuth {
     this.user = value;
   }
 
-  public getUser(): BlitzWareAuthUser | null {
+  getUser(): BlitzWareAuthUser | null {
     return this.user;
   }
 
@@ -90,7 +88,7 @@ export class BlitzWareAuth {
     this.isAuthenticated = value;
   }
 
-  public getIsAuthenticated(): boolean {
+  getIsAuthenticated(): boolean {
     return this.isAuthenticated;
   }
 
@@ -98,7 +96,7 @@ export class BlitzWareAuth {
     this.isLoading = value;
   }
 
-  public getIsLoading(): boolean {
+  getIsLoading(): boolean {
     return this.isLoading;
   }
 }
