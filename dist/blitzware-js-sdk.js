@@ -20,6 +20,20 @@
     ***************************************************************************** */
     /* global Reflect, Promise, SuppressedError, Symbol, Iterator */
 
+    var extendStatics = function(d, b) {
+        extendStatics = Object.setPrototypeOf ||
+            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
+        return extendStatics(d, b);
+    };
+
+    function __extends(d, b) {
+        if (typeof b !== "function" && b !== null)
+            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    }
 
     function __awaiter(thisArg, _arguments, P, generator) {
         function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -63,6 +77,18 @@
         var e = new Error(message);
         return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
     };
+
+    var BlitzWareAuthError = /** @class */ (function (_super) {
+        __extends(BlitzWareAuthError, _super);
+        function BlitzWareAuthError(message, code, details) {
+            var _this = _super.call(this, message) || this;
+            _this.code = code;
+            _this.details = details;
+            _this.name = "BlitzWareAuthError";
+            return _this;
+        }
+        return BlitzWareAuthError;
+    }(Error));
 
     var global$1 = (typeof global !== "undefined" ? global :
       typeof self !== "undefined" ? self :
@@ -6002,52 +6028,236 @@
     axios.default = axios;
 
     var TOKEN_RE = /[?&]access_token=[^&]+/;
+    var CODE_RE = /[?&]code=[^&]+/;
     var STATE_RE = /[?&]state=[^&]+/;
+    var BASE_URL = "https://auth.blitzware.xyz/api/auth/";
+    // Configure axios instance with credentials for session support
+    var apiClient = axios.create({
+        baseURL: BASE_URL,
+        withCredentials: true, // Include session cookies in all requests
+        headers: {
+            "Content-Type": "application/json",
+        },
+    });
+    /**
+     * Parses an API error response and creates a BlitzWareAuthError.
+     * @param error - The axios error or generic error.
+     * @param fallbackMessage - Fallback message if parsing fails.
+     * @param fallbackCode - Fallback code if parsing fails.
+     * @returns A BlitzWareAuthError with parsed details.
+     */
+    var parseApiError = function (error, fallbackMessage, fallbackCode) {
+        var _a;
+        // Check if it's an axios error with response data
+        if ((_a = error === null || error === void 0 ? void 0 : error.response) === null || _a === void 0 ? void 0 : _a.data) {
+            var responseData = error.response.data;
+            // Check if response matches our API error format
+            if (responseData.code && responseData.message) {
+                return new BlitzWareAuthError(responseData.message, responseData.code, responseData.details);
+            }
+        }
+        // Fallback to generic error
+        return new BlitzWareAuthError(fallbackMessage, fallbackCode);
+    };
+    /**
+     * Clears the current session by removing all stored tokens and state.
+     */
+    var clearSession = function () {
+        removeToken("access_token");
+        removeToken("refresh_token");
+        removeState();
+        removeCodeVerifier();
+    };
+    /**
+     * Checks if the URL search parameters contain authentication parameters.
+     * @param searchParams - The URL search string to check (defaults to window.location.search).
+     * @returns True if authentication parameters are present, false otherwise.
+     */
     var hasAuthParams = function (searchParams) {
         if (searchParams === void 0) { searchParams = window.location.search; }
-        return TOKEN_RE.test(searchParams) && STATE_RE.test(searchParams);
+        return (TOKEN_RE.test(searchParams) || CODE_RE.test(searchParams)) &&
+            STATE_RE.test(searchParams);
     };
-    var generateAuthUrl = function (_a, state) {
-        var _b = _a.responseType, responseType = _b === void 0 ? "token" : _b, clientId = _a.clientId, redirectUri = _a.redirectUri;
-        var baseUrl = "https://auth.blitzware.xyz/api/auth/authorize";
-        var queryParams = new URLSearchParams({
-            response_type: responseType,
-            client_id: clientId,
-            redirect_uri: redirectUri,
-            state: state,
+    /**
+     * Generates the BlitzWare authorization URL with optional PKCE support.
+     * @param params - The authorization parameters.
+     * @param state - The state string to include in the request.
+     * @returns The full authorization URL.
+     */
+    var generateAuthUrl = function (_a, state_1) { return __awaiter(void 0, [_a, state_1], void 0, function (_b, state) {
+        var authUrl, queryParams, verifier, challenge;
+        var _c = _b.responseType, responseType = _c === void 0 ? "code" : _c, clientId = _b.clientId, redirectUri = _b.redirectUri;
+        return __generator(this, function (_d) {
+            switch (_d.label) {
+                case 0:
+                    authUrl = BASE_URL + "authorize";
+                    queryParams = new URLSearchParams({
+                        response_type: responseType,
+                        client_id: clientId,
+                        redirect_uri: redirectUri,
+                        state: state,
+                    });
+                    if (!(responseType === "code")) return [3 /*break*/, 2];
+                    verifier = generateCodeVerifier();
+                    return [4 /*yield*/, generateCodeChallenge(verifier)];
+                case 1:
+                    challenge = _d.sent();
+                    setCodeVerifier(verifier);
+                    queryParams.append("code_challenge", challenge);
+                    queryParams.append("code_challenge_method", "S256");
+                    _d.label = 2;
+                case 2: return [2 /*return*/, "".concat(authUrl, "?").concat(queryParams.toString())];
+            }
         });
-        return "".concat(baseUrl, "?").concat(queryParams.toString());
-    };
-    var fetchUserInfo = function (accessToken) { return __awaiter(void 0, void 0, void 0, function () {
-        var response;
+    }); };
+    /**
+     * Exchanges an authorization code for access and refresh tokens.
+     * @param code - The authorization code received from the authorization server.
+     * @param clientId - The client ID.
+     * @param redirectUri - The redirect URI.
+     * @returns An object containing the access token and optionally a refresh token.
+     * @throws BlitzWareAuthError if the code_verifier is missing or the exchange fails.
+     */
+    var exchangeCodeForToken = function (code, clientId, redirectUri) { return __awaiter(void 0, void 0, void 0, function () {
+        var codeVerifier, response, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
-                    _a.trys.push([0, 2, , 3]);
-                    return [4 /*yield*/, axios.get("https://auth.blitzware.xyz/api/auth/userinfo", {
+                    codeVerifier = getCodeVerifier();
+                    if (!codeVerifier)
+                        throw new BlitzWareAuthError("Missing PKCE code_verifier", "missing_code_verifier");
+                    _a.label = 1;
+                case 1:
+                    _a.trys.push([1, 3, , 4]);
+                    return [4 /*yield*/, apiClient.post("token", {
+                            grant_type: "authorization_code",
+                            code: code,
+                            client_id: clientId,
+                            redirect_uri: redirectUri,
+                            code_verifier: codeVerifier,
+                        })];
+                case 2:
+                    response = _a.sent();
+                    removeCodeVerifier();
+                    return [2 /*return*/, response.data];
+                case 3:
+                    error_1 = _a.sent();
+                    throw parseApiError(error_1, "Failed to exchange code for token", "exchange_failed");
+                case 4: return [2 /*return*/];
+            }
+        });
+    }); };
+    /**
+     * Fetches user information using the stored access token with validation.
+     * Validates the token with the authorization server before fetching user info.
+     * @param clientId - The client ID.
+     * @param clientSecret - The client secret (optional for public clients).
+     * @returns The authenticated user's information.
+     * @throws BlitzWareAuthError if the token is invalid or request fails.
+     */
+    var fetchUserInfo = function (clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
+        var tokenValidation, accessToken, response, error_2;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0: return [4 /*yield*/, validateAccessToken(clientId)];
+                case 1:
+                    tokenValidation = _a.sent();
+                    if (!tokenValidation.active) {
+                        throw new BlitzWareAuthError("Access token is not active or has expired", "token_inactive");
+                    }
+                    accessToken = getToken("access_token");
+                    if (!accessToken) {
+                        throw new BlitzWareAuthError("No access token available", "no_access_token");
+                    }
+                    _a.label = 2;
+                case 2:
+                    _a.trys.push([2, 4, , 5]);
+                    return [4 /*yield*/, apiClient.get("userinfo", {
                             params: {
                                 access_token: accessToken,
                             },
                         })];
-                case 1:
+                case 3:
                     response = _a.sent();
                     return [2 /*return*/, response.data];
-                case 2:
-                    _a.sent();
-                    throw new Error("Failed to fetch user info");
-                case 3: return [2 /*return*/];
+                case 4:
+                    error_2 = _a.sent();
+                    throw parseApiError(error_2, "Failed to fetch user info", "userinfo_failed");
+                case 5: return [2 /*return*/];
             }
         });
     }); };
+    /**
+     * Attempts to refresh the access token using the stored refresh token with validation.
+     * Validates the refresh token before attempting to use it.
+     * @param clientId - The client ID.
+     * @param clientSecret - The client secret (optional for public clients).
+     * @returns An object containing the new access token and optionally a new refresh token.
+     * @throws BlitzWareAuthError if refresh token is invalid or refresh fails.
+     */
+    var tryRefreshToken = function (clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
+        var tokenValidation, refreshToken, response, error_3;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0: return [4 /*yield*/, validateRefreshToken(clientId)];
+                case 1:
+                    tokenValidation = _a.sent();
+                    if (!tokenValidation.active) {
+                        throw new BlitzWareAuthError("Refresh token is not active or has expired", "refresh_token_inactive");
+                    }
+                    refreshToken = getToken("refresh_token");
+                    if (!refreshToken)
+                        throw new BlitzWareAuthError("No refresh token available", "no_refresh_token");
+                    _a.label = 2;
+                case 2:
+                    _a.trys.push([2, 4, , 5]);
+                    return [4 /*yield*/, apiClient.post("token", {
+                            grant_type: "refresh_token",
+                            refresh_token: refreshToken,
+                            client_id: clientId,
+                        })];
+                case 3:
+                    response = _a.sent();
+                    setToken("access_token", response.data.access_token);
+                    if (response.data.refresh_token) {
+                        setToken("refresh_token", response.data.refresh_token);
+                    }
+                    return [2 /*return*/, response.data];
+                case 4:
+                    error_3 = _a.sent();
+                    throw parseApiError(error_3, "Failed to refresh token", "refresh_failed");
+                case 5: return [2 /*return*/];
+            }
+        });
+    }); };
+    /**
+     * Stores an access or refresh token in localStorage.
+     * @param type - The type of token ("access_token" or "refresh_token").
+     * @param token - The token value.
+     */
     var setToken = function (type, token) {
         localStorage.setItem(type, token);
     };
+    /**
+     * Retrieves an access or refresh token from localStorage.
+     * @param type - The type of token ("access_token" or "refresh_token").
+     * @returns The token value or null if not found.
+     */
     var getToken = function (type) {
         return localStorage.getItem(type);
     };
+    /**
+     * Removes an access or refresh token from localStorage.
+     * @param type - The type of token ("access_token" or "refresh_token").
+     */
     var removeToken = function (type) {
         localStorage.removeItem(type);
     };
+    /**
+     * Decodes a JWT and returns its payload as an object.
+     * @param token - The JWT string.
+     * @returns The decoded payload object, or {} if decoding fails.
+     */
     var parseJwt = function (token) {
         try {
             if (!token)
@@ -6061,6 +6271,11 @@
             console.error(error);
         }
     };
+    /**
+     * Converts a JWT exp (expiration) value to a Date object.
+     * @param exp - The expiration value (number or string).
+     * @returns The expiration as a Date, or null if invalid.
+     */
     var parseExp = function (exp) {
         if (!exp)
             return null;
@@ -6070,6 +6285,11 @@
             return null;
         return new Date(exp * 1000);
     };
+    /**
+     * Checks if the stored access token is valid (not expired).
+     * This is a quick local check based on JWT expiration.
+     * @returns True if the token appears valid locally, false otherwise.
+     */
     var isTokenValid = function () {
         var token = getToken("access_token");
         if (!token)
@@ -6080,98 +6300,404 @@
             return false;
         return expiration > new Date();
     };
+    /**
+     * Validates an access token by introspecting it with the authorization server.
+     * This provides authoritative validation from the server.
+     * @param clientId - The client ID.
+     * @param clientSecret - The client secret (optional for public clients).
+     * @returns Promise that resolves to introspection result.
+     * @throws BlitzWareAuthError if validation fails.
+     */
+    var validateAccessToken = function (clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
+        var token;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    token = getToken("access_token");
+                    if (!token) {
+                        return [2 /*return*/, { active: false }];
+                    }
+                    _a.label = 1;
+                case 1:
+                    _a.trys.push([1, 3, , 4]);
+                    return [4 /*yield*/, introspectToken(token, "access_token", clientId)];
+                case 2: return [2 /*return*/, _a.sent()];
+                case 3:
+                    _a.sent();
+                    // If introspection fails, token is considered invalid
+                    return [2 /*return*/, { active: false }];
+                case 4: return [2 /*return*/];
+            }
+        });
+    }); };
+    /**
+     * Validates a refresh token by introspecting it with the authorization server.
+     * @param clientId - The client ID.
+     * @param clientSecret - The client secret (optional for public clients).
+     * @returns Promise that resolves to introspection result.
+     * @throws BlitzWareAuthError if validation fails.
+     */
+    var validateRefreshToken = function (clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
+        var token;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    token = getToken("refresh_token");
+                    if (!token) {
+                        return [2 /*return*/, { active: false }];
+                    }
+                    _a.label = 1;
+                case 1:
+                    _a.trys.push([1, 3, , 4]);
+                    return [4 /*yield*/, introspectToken(token, "refresh_token", clientId)];
+                case 2: return [2 /*return*/, _a.sent()];
+                case 3:
+                    _a.sent();
+                    // If introspection fails, token is considered invalid
+                    return [2 /*return*/, { active: false }];
+                case 4: return [2 /*return*/];
+            }
+        });
+    }); };
+    /**
+     * Stores the OAuth state value in localStorage.
+     * @param state - The state string.
+     */
     var setState = function (state) {
         localStorage.setItem("state", state);
     };
+    /**
+     * Retrieves the OAuth state value from localStorage.
+     * @returns The state string or null if not found.
+     */
     var getState = function () {
         return localStorage.getItem("state");
     };
+    /**
+     * Removes the OAuth state value from localStorage.
+     */
     var removeState = function () {
         localStorage.removeItem("state");
     };
-
-    const urlAlphabet =
-      'useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict';
-
-    let nanoid = (size = 21) => {
-      let id = '';
-      let bytes = crypto.getRandomValues(new Uint8Array(size));
-      while (size--) {
-        id += urlAlphabet[bytes[size] & 63];
-      }
-      return id
+    /**
+     * Generates a high-entropy PKCE code_verifier.
+     * @returns The code_verifier string.
+     */
+    var generateCodeVerifier = function () {
+        var array = new Uint8Array(64);
+        window.crypto.getRandomValues(array);
+        return btoa(String.fromCharCode.apply(null, Array.from(array)))
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
     };
+    /**
+     * Generates a PKCE code_challenge from a code_verifier.
+     * @param verifier - The code_verifier string.
+     * @returns The code_challenge string.
+     */
+    var generateCodeChallenge = function (verifier) { return __awaiter(void 0, void 0, void 0, function () {
+        var data, digest, hash;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    data = new TextEncoder().encode(verifier);
+                    return [4 /*yield*/, window.crypto.subtle.digest("SHA-256", data)];
+                case 1:
+                    digest = _a.sent();
+                    hash = new Uint8Array(digest);
+                    return [2 /*return*/, btoa(String.fromCharCode.apply(null, Array.from(hash)))
+                            .replace(/\+/g, "-")
+                            .replace(/\//g, "_")
+                            .replace(/=+$/, "")];
+            }
+        });
+    }); };
+    /**
+     * Stores the PKCE code_verifier in localStorage.
+     * @param verifier - The code_verifier string.
+     */
+    var setCodeVerifier = function (verifier) {
+        localStorage.setItem("pkce_code_verifier", verifier);
+    };
+    /**
+     * Retrieves the PKCE code_verifier from localStorage.
+     * @returns The code_verifier string or null if not found.
+     */
+    var getCodeVerifier = function () {
+        return localStorage.getItem("pkce_code_verifier");
+    };
+    /**
+     * Removes the PKCE code_verifier from localStorage.
+     */
+    var removeCodeVerifier = function () {
+        localStorage.removeItem("pkce_code_verifier");
+    };
+    /**
+     * Generates a cryptographically secure random state string.
+     * @returns A base64url-encoded random string.
+     */
+    var generateSecureState = function () {
+        var array = new Uint8Array(32); // 256 bits of entropy
+        crypto.getRandomValues(array);
+        return btoa(String.fromCharCode.apply(null, Array.from(array)))
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+    };
+    /**
+     * Logs out the user from the BlitzWare authentication service.
+     * @param clientId - The client ID.
+     * @param options - Optional logout configuration.
+     * @returns Promise that resolves when logout is complete.
+     * @throws BlitzWareAuthError if logout fails.
+     */
+    var logoutFromService = function (clientId) { return __awaiter(void 0, void 0, void 0, function () {
+        var error_6;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, apiClient.post("logout", { client_id: clientId })];
+                case 1:
+                    _a.sent();
+                    return [3 /*break*/, 3];
+                case 2:
+                    error_6 = _a.sent();
+                    throw parseApiError(error_6, "Failed to log out", "logout_failed");
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); };
+    /**
+     * Introspects a token to check its validity and get metadata.
+     * Implements RFC 7662 OAuth2 Token Introspection.
+     * @param token - The token to introspect.
+     * @param tokenTypeHint - The type of token being introspected.
+     * @param clientId - The client ID.
+     * @param clientSecret - The client secret (optional for public clients).
+     * @returns Token introspection response.
+     * @throws BlitzWareAuthError if introspection fails.
+     */
+    var introspectToken = function (token, tokenTypeHint, clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
+        var requestBody, response, error_7;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    requestBody = {
+                        token: token,
+                        token_type_hint: tokenTypeHint,
+                        client_id: clientId,
+                    };
+                    return [4 /*yield*/, apiClient.post("introspect", requestBody)];
+                case 1:
+                    response = _a.sent();
+                    return [2 /*return*/, response.data];
+                case 2:
+                    error_7 = _a.sent();
+                    throw parseApiError(error_7, "Failed to introspect token", "introspect_failed");
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); };
 
     var BlitzWareAuth = /** @class */ (function () {
         function BlitzWareAuth(authParams) {
             this.user = null;
             this.isAuthenticated = isTokenValid();
             this.isLoading = true;
+            this.didInitialize = false;
             this.authParams = authParams;
-            this.state = getState() || nanoid();
+            this.state = getState() || generateSecureState();
         }
-        BlitzWareAuth.prototype.handleRedirect = function () {
+        BlitzWareAuth.prototype.initializeAuth = function () {
             return __awaiter(this, void 0, void 0, function () {
-                var urlParams, state, access_token, data, refresh_token, data;
+                var userData, tokenResponse, userData, error_2;
                 return __generator(this, function (_a) {
                     switch (_a.label) {
                         case 0:
-                            if (!hasAuthParams()) return [3 /*break*/, 4];
+                            if (this.didInitialize)
+                                return [2 /*return*/];
+                            this.didInitialize = true;
+                            _a.label = 1;
+                        case 1:
+                            _a.trys.push([1, 8, 9, 10]);
+                            if (!!hasAuthParams()) return [3 /*break*/, 7];
+                            if (!isTokenValid()) return [3 /*break*/, 3];
+                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId)];
+                        case 2:
+                            userData = _a.sent();
+                            this.setUser(userData);
+                            this.setIsAuthenticated(true);
+                            return [3 /*break*/, 7];
+                        case 3:
+                            _a.trys.push([3, 6, , 7]);
+                            return [4 /*yield*/, tryRefreshToken(this.authParams.clientId)];
+                        case 4:
+                            tokenResponse = _a.sent();
+                            setToken("access_token", tokenResponse.access_token);
+                            if (tokenResponse.refresh_token) {
+                                setToken("refresh_token", tokenResponse.refresh_token);
+                            }
+                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId)];
+                        case 5:
+                            userData = _a.sent();
+                            this.setUser(userData);
+                            this.setIsAuthenticated(true);
+                            return [3 /*break*/, 7];
+                        case 6:
+                            _a.sent();
+                            // Refresh failed, clear tokens
+                            clearSession();
+                            this.setIsAuthenticated(false);
+                            return [3 /*break*/, 7];
+                        case 7: return [3 /*break*/, 10];
+                        case 8:
+                            error_2 = _a.sent();
+                            console.error("Authentication initialization failed:", error_2);
+                            clearSession();
+                            this.setIsAuthenticated(false);
+                            this.user = null;
+                            return [3 /*break*/, 10];
+                        case 9:
+                            this.setIsLoading(false);
+                            return [7 /*endfinally*/];
+                        case 10: return [2 /*return*/];
+                    }
+                });
+            });
+        };
+        BlitzWareAuth.prototype.handleRedirect = function () {
+            return __awaiter(this, void 0, void 0, function () {
+                var urlParams, error, errorDescription, state, code, tokenResponse, userData, accessToken, userData, refreshToken, error_3;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0: 
+                        // Always run initialization first
+                        return [4 /*yield*/, this.initializeAuth()];
+                        case 1:
+                            // Always run initialization first
+                            _a.sent();
+                            _a.label = 2;
+                        case 2:
+                            _a.trys.push([2, 9, 10, 11]);
+                            if (!hasAuthParams()) return [3 /*break*/, 8];
                             urlParams = new URLSearchParams(window.location.search);
+                            error = urlParams.get("error");
+                            if (error) {
+                                errorDescription = urlParams.get("error_description");
+                                throw new BlitzWareAuthError(errorDescription || "OAuth error: ".concat(error), error);
+                            }
                             state = urlParams.get("state");
                             if (state !== this.state) {
-                                this.setIsAuthenticated(false);
-                                this.setIsLoading(false);
-                                return [2 /*return*/];
+                                throw new BlitzWareAuthError("Invalid state parameter", "invalid_state");
                             }
-                            access_token = urlParams.get("access_token");
-                            if (!access_token) return [3 /*break*/, 2];
-                            setToken("access_token", access_token);
-                            this.setIsAuthenticated(true);
-                            return [4 /*yield*/, fetchUserInfo(access_token)];
-                        case 1:
-                            data = _a.sent();
-                            this.setUser(data);
-                            this.setIsLoading(false);
-                            return [3 /*break*/, 3];
-                        case 2:
-                            this.setIsAuthenticated(false);
-                            this.setIsLoading(false);
-                            _a.label = 3;
+                            code = urlParams.get("code");
+                            if (!code) return [3 /*break*/, 5];
+                            return [4 /*yield*/, exchangeCodeForToken(code, this.authParams.clientId, this.authParams.redirectUri)];
                         case 3:
-                            refresh_token = urlParams.get("refresh_token");
-                            if (refresh_token)
-                                setToken("refresh_token", refresh_token);
-                            return [3 /*break*/, 7];
+                            tokenResponse = _a.sent();
+                            // Store tokens
+                            setToken("access_token", tokenResponse.access_token);
+                            if (tokenResponse.refresh_token) {
+                                setToken("refresh_token", tokenResponse.refresh_token);
+                            }
+                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId)];
                         case 4:
-                            if (!isTokenValid()) return [3 /*break*/, 6];
-                            return [4 /*yield*/, fetchUserInfo(getToken("access_token"))];
-                        case 5:
-                            data = _a.sent();
-                            this.setUser(data);
+                            userData = _a.sent();
+                            this.setUser(userData);
                             this.setIsAuthenticated(true);
-                            _a.label = 6;
+                            // Clean URL
+                            window.history.replaceState({}, document.title, window.location.pathname);
+                            return [3 /*break*/, 8];
+                        case 5:
+                            accessToken = urlParams.get("access_token");
+                            if (!accessToken) return [3 /*break*/, 7];
+                            setToken("access_token", accessToken);
+                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId)];
                         case 6:
+                            userData = _a.sent();
+                            this.setUser(userData);
+                            this.setIsAuthenticated(true);
+                            refreshToken = urlParams.get("refresh_token");
+                            if (refreshToken) {
+                                setToken("refresh_token", refreshToken);
+                            }
+                            // Clean URL
+                            window.history.replaceState({}, document.title, window.location.pathname);
+                            return [3 /*break*/, 8];
+                        case 7:
+                            this.setIsAuthenticated(false);
+                            _a.label = 8;
+                        case 8: return [3 /*break*/, 11];
+                        case 9:
+                            error_3 = _a.sent();
+                            console.error("Redirect handling failed:", error_3);
+                            clearSession();
+                            this.setIsAuthenticated(false);
+                            this.user = null;
+                            throw error_3;
+                        case 10:
                             this.setIsLoading(false);
-                            _a.label = 7;
-                        case 7: return [2 /*return*/];
+                            return [7 /*endfinally*/];
+                        case 11: return [2 /*return*/];
                     }
                 });
             });
         };
         BlitzWareAuth.prototype.login = function () {
-            var newState = nanoid();
-            setState(newState);
-            var authUrl = generateAuthUrl(this.authParams, newState);
-            window.location.href = authUrl;
+            return __awaiter(this, void 0, void 0, function () {
+                var newState, authUrl, error_4;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            _a.trys.push([0, 2, , 3]);
+                            newState = generateSecureState();
+                            setState(newState);
+                            this.state = newState;
+                            return [4 /*yield*/, generateAuthUrl(this.authParams, newState)];
+                        case 1:
+                            authUrl = _a.sent();
+                            window.location.href = authUrl;
+                            return [3 /*break*/, 3];
+                        case 2:
+                            error_4 = _a.sent();
+                            console.error("Login failed:", error_4);
+                            throw error_4;
+                        case 3: return [2 /*return*/];
+                    }
+                });
+            });
         };
         BlitzWareAuth.prototype.logout = function () {
-            removeToken("access_token");
-            removeToken("refresh_token");
-            removeState();
-            this.setIsAuthenticated(false);
-            this.user = null;
-            window.location.reload();
+            return __awaiter(this, void 0, void 0, function () {
+                var error_5;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            this.setIsLoading(true);
+                            _a.label = 1;
+                        case 1:
+                            _a.trys.push([1, 3, , 4]);
+                            return [4 /*yield*/, logoutFromService(this.authParams.clientId)];
+                        case 2:
+                            _a.sent();
+                            return [3 /*break*/, 4];
+                        case 3:
+                            error_5 = _a.sent();
+                            console.error("Failed to logout from service:", error_5);
+                            return [3 /*break*/, 4];
+                        case 4:
+                            clearSession();
+                            this.setIsAuthenticated(false);
+                            this.setUser(null);
+                            this.setIsLoading(false);
+                            window.location.reload();
+                            return [2 /*return*/];
+                    }
+                });
+            });
         };
         BlitzWareAuth.prototype.setUser = function (value) {
             this.user = value;
@@ -6211,27 +6737,25 @@
                                         return [2 /*return*/, blitzWareClient.handleRedirect()];
                                     });
                                 }); },
-                                login: function () {
-                                    blitzWareClient.login();
+                                login: function () { return __awaiter(_this, void 0, void 0, function () {
+                                    return __generator(this, function (_a) {
+                                        return [2 /*return*/, blitzWareClient.login()];
+                                    });
+                                }); },
+                                logout: function () { return __awaiter(_this, void 0, void 0, function () {
+                                    return __generator(this, function (_a) {
+                                        return [2 /*return*/, blitzWareClient.logout()];
+                                    });
+                                }); },
+                                getUser: function () {
+                                    return blitzWareClient.getUser();
                                 },
-                                logout: function () {
-                                    blitzWareClient.logout();
+                                isAuthenticated: function () {
+                                    return blitzWareClient.getIsAuthenticated();
                                 },
-                                getUser: function () { return __awaiter(_this, void 0, void 0, function () {
-                                    return __generator(this, function (_a) {
-                                        return [2 /*return*/, blitzWareClient.getUser()];
-                                    });
-                                }); },
-                                isAuthenticated: function () { return __awaiter(_this, void 0, void 0, function () {
-                                    return __generator(this, function (_a) {
-                                        return [2 /*return*/, blitzWareClient.getIsAuthenticated()];
-                                    });
-                                }); },
-                                isLoading: function () { return __awaiter(_this, void 0, void 0, function () {
-                                    return __generator(this, function (_a) {
-                                        return [2 /*return*/, blitzWareClient.getIsLoading()];
-                                    });
-                                }); },
+                                isLoading: function () {
+                                    return blitzWareClient.getIsLoading();
+                                },
                             }];
                 }
             });

@@ -9,4 +9,25 @@ export interface BlitzWareAuthUser {
     email?: string;
     roles?: string[];
 }
+/**
+ * RFC 7662 OAuth2 Token Introspection Response
+ */
+export interface TokenIntrospectionResponse {
+    active: boolean;
+    client_id?: string;
+    username?: string;
+    token_type?: string;
+    exp?: number;
+    iat?: number;
+    sub?: string;
+    aud?: string;
+    iss?: string;
+    jti?: string;
+    scope?: string;
+}
+export declare class BlitzWareAuthError extends Error {
+    code: string;
+    details?: Record<string, any>;
+    constructor(message: string, code: string, details?: Record<string, any>);
+}
 //# sourceMappingURL=types.d.ts.map

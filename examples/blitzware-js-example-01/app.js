@@ -1,6 +1,7 @@
 BlitzWareAuth.createBlitzWareClient({
   clientId: "your-client-id",
   redirectUri: "your-redirect-uri",
+  responseType: "code", // or "token"
 }).then(async (blitzWareClient) => {
   document.getElementById("login").addEventListener("click", (e) => {
     e.preventDefault();

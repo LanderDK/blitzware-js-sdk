@@ -9,19 +9,19 @@ export async function createBlitzWareClient(authParams: BlitzWareAuthParams) {
     handleRedirect: async () => {
       return blitzWareClient.handleRedirect();
     },
-    login: () => {
-      blitzWareClient.login();
+    login: async () => {
+      return blitzWareClient.login();
     },
-    logout: () => {
-      blitzWareClient.logout();
+    logout: async () => {
+      return blitzWareClient.logout();
     },
-    getUser: async () => {
+    getUser: () => {
       return blitzWareClient.getUser();
     },
-    isAuthenticated: async () => {
+    isAuthenticated: () => {
       return blitzWareClient.getIsAuthenticated();
     },
-    isLoading: async () => {
+    isLoading: () => {
       return blitzWareClient.getIsLoading();
     },
   };

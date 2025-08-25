@@ -1,17 +1,22 @@
-import { BlitzWareAuthParams, BlitzWareAuthUser } from "./types";
+import {
+  BlitzWareAuthParams,
+  BlitzWareAuthUser,
+  BlitzWareAuthError,
+} from "./types";
 import {
   generateAuthUrl,
-  isTokenValid,
-  fetchUserInfo,
-  setToken,
-  getToken,
-  removeToken,
-  getState,
-  setState,
-  removeState,
   hasAuthParams,
+  isTokenValid,
+  setToken,
+  setState,
+  getState,
+  fetchUserInfo,
+  exchangeCodeForToken,
+  tryRefreshToken,
+  generateSecureState,
+  logoutFromService,
+  clearSession,
 } from "./utils";
-import { nanoid } from "nanoid";
 
 export class BlitzWareAuth {
   private authParams: BlitzWareAuthParams;
@@ -19,64 +24,171 @@ export class BlitzWareAuth {
   private user: BlitzWareAuthUser | null = null;
   private isAuthenticated = isTokenValid();
   private isLoading: boolean = true;
+  private didInitialize = false;
 
   constructor(authParams: BlitzWareAuthParams) {
     this.authParams = authParams;
-    this.state = getState() || nanoid();
+    this.state = getState() || generateSecureState();
   }
 
-  async handleRedirect(): Promise<void> {
-    if (hasAuthParams()) {
-      const urlParams = new URLSearchParams(window.location.search);
+  private async initializeAuth(): Promise<void> {
+    if (this.didInitialize) return;
+    this.didInitialize = true;
 
-      const state = urlParams.get("state");
-      if (state !== this.state) {
-        this.setIsAuthenticated(false);
-        this.setIsLoading(false);
-        return;
-      }
+    try {
+      if (!hasAuthParams()) {
+        if (isTokenValid()) {
+          const userData = await fetchUserInfo(this.authParams.clientId);
+          this.setUser(userData);
+          this.setIsAuthenticated(true);
+        } else {
+          try {
+            const tokenResponse = await tryRefreshToken(
+              this.authParams.clientId
+            );
+            setToken("access_token", tokenResponse.access_token);
+            if (tokenResponse.refresh_token) {
+              setToken("refresh_token", tokenResponse.refresh_token);
+            }
 
-      const access_token = urlParams.get("access_token");
-      if (access_token) {
-        setToken("access_token", access_token);
-        this.setIsAuthenticated(true);
-        const data = await fetchUserInfo(access_token);
-        this.setUser(data);
-        this.setIsLoading(false);
-      } else {
-        this.setIsAuthenticated(false);
-        this.setIsLoading(false);
+            const userData = await fetchUserInfo(this.authParams.clientId);
+            this.setUser(userData);
+            this.setIsAuthenticated(true);
+          } catch (error) {
+            // Refresh failed, clear tokens
+            clearSession();
+            this.setIsAuthenticated(false);
+          }
+        }
       }
-
-      const refresh_token = urlParams.get("refresh_token");
-      if (refresh_token) setToken("refresh_token", refresh_token);
-    } else {
-      if (isTokenValid()) {
-        const data = await fetchUserInfo(getToken("access_token") as string);
-        this.setUser(data);
-        this.setIsAuthenticated(true);
-      }
+    } catch (error) {
+      console.error("Authentication initialization failed:", error);
+      clearSession();
+      this.setIsAuthenticated(false);
+      this.user = null;
+    } finally {
       this.setIsLoading(false);
     }
   }
 
-  login(): void {
-    const newState = nanoid();
-    setState(newState);
-    const authUrl = generateAuthUrl(this.authParams, newState);
-    window.location.href = authUrl;
+  async handleRedirect(): Promise<void> {
+    // Always run initialization first
+    await this.initializeAuth();
+
+    try {
+      if (hasAuthParams()) {
+        const urlParams = new URLSearchParams(window.location.search);
+
+        // Check for error
+        const error = urlParams.get("error");
+        if (error) {
+          const errorDescription = urlParams.get("error_description");
+          throw new BlitzWareAuthError(
+            errorDescription || `OAuth error: ${error}`,
+            error
+          );
+        }
+
+        const state = urlParams.get("state");
+        if (state !== this.state) {
+          throw new BlitzWareAuthError(
+            "Invalid state parameter",
+            "invalid_state"
+          );
+        }
+
+        const code = urlParams.get("code");
+        if (code) {
+          // Handle authorization code flow with PKCE
+          const tokenResponse = await exchangeCodeForToken(
+            code,
+            this.authParams.clientId,
+            this.authParams.redirectUri
+          );
+
+          // Store tokens
+          setToken("access_token", tokenResponse.access_token);
+          if (tokenResponse.refresh_token) {
+            setToken("refresh_token", tokenResponse.refresh_token);
+          }
+
+          // Fetch user info
+          const userData = await fetchUserInfo(this.authParams.clientId);
+          this.setUser(userData);
+          this.setIsAuthenticated(true);
+
+          // Clean URL
+          window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname
+          );
+        } else {
+          // Handle legacy implicit flow
+          const accessToken = urlParams.get("access_token");
+          if (accessToken) {
+            setToken("access_token", accessToken);
+
+            const userData = await fetchUserInfo(this.authParams.clientId);
+            this.setUser(userData);
+            this.setIsAuthenticated(true);
+
+            const refreshToken = urlParams.get("refresh_token");
+            if (refreshToken) {
+              setToken("refresh_token", refreshToken);
+            }
+
+            // Clean URL
+            window.history.replaceState(
+              {},
+              document.title,
+              window.location.pathname
+            );
+          } else {
+            this.setIsAuthenticated(false);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Redirect handling failed:", error);
+      clearSession();
+      this.setIsAuthenticated(false);
+      this.user = null;
+      throw error;
+    } finally {
+      this.setIsLoading(false);
+    }
   }
 
-  logout(): void {
-    removeToken("access_token");
-    removeToken("refresh_token");
-    removeState();
+  async login(): Promise<void> {
+    try {
+      const newState = generateSecureState();
+      setState(newState);
+      this.state = newState;
+
+      const authUrl = await generateAuthUrl(this.authParams, newState);
+      window.location.href = authUrl;
+    } catch (error) {
+      console.error("Login failed:", error);
+      throw error;
+    }
+  }
+
+  async logout(): Promise<void> {
+    this.setIsLoading(true);
+    try {
+      await logoutFromService(this.authParams.clientId);
+    } catch (error) {
+      console.error("Failed to logout from service:", error);
+    }
+    clearSession();
     this.setIsAuthenticated(false);
-    this.user = null;
+    this.setUser(null);
+    this.setIsLoading(false);
     window.location.reload();
   }
 
-  private setUser(value: BlitzWareAuthUser): void {
+  private setUser(value: BlitzWareAuthUser | null): void {
     this.user = value;
   }
 

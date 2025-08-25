@@ -5,10 +5,12 @@ export declare class BlitzWareAuth {
     private user;
     private isAuthenticated;
     private isLoading;
+    private didInitialize;
     constructor(authParams: BlitzWareAuthParams);
+    private initializeAuth;
     handleRedirect(): Promise<void>;
-    login(): void;
-    logout(): void;
+    login(): Promise<void>;
+    logout(): Promise<void>;
     private setUser;
     getUser(): BlitzWareAuthUser | null;
     private setIsAuthenticated;
