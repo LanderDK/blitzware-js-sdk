@@ -1,0 +1,96 @@
+body {
+  font-family: Arial, sans-serif;
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+button {
+  margin-right: 10px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+#login {
+  background-color: #007bff;
+  color: white;
+}
+
+#login:hover {
+  background-color: #0056b3;
+}
+
+#logout {
+  background-color: #dc3545;
+  color: white;
+}
+
+#logout:hover {
+  background-color: #c82333;
+}
+
+#profile {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 5px;
+  border-left: 4px solid #007bff;
+}
+
+.role-section {
+  margin: 20px 0;
+  padding: 20px;
+  border-radius: 8px;
+  border: 2px solid #e9ecef;
+}
+
+#admin-section {
+  background-color: #fff3cd;
+  border-color: #ffc107;
+}
+
+#admin-section h2 {
+  color: #856404;
+}
+
+#premium-section {
+  background-color: #d1ecf1;
+  border-color: #17a2b8;
+}
+
+#premium-section h2 {
+  color: #0c5460;
+}
+
+#user-section {
+  background-color: #d4edda;
+  border-color: #28a745;
+}
+
+#user-section h2 {
+  color: #155724;
+}
+
+#no-access {
+  background-color: #f8d7da;
+  border-color: #dc3545;
+  padding: 20px;
+  border-radius: 8px;
+  border: 2px solid #dc3545;
+}
+
+#no-access h2 {
+  color: #721c24;
+}
+
+ul {
+  margin: 10px 0;
+  padding-left: 20px;
+}
+
+li {
+  margin: 5px 0;
+}

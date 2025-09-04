@@ -6,5 +6,9 @@ export declare function createBlitzWareClient(authParams: BlitzWareAuthParams): 
     getUser: () => import("./types").BlitzWareAuthUser | null;
     isAuthenticated: () => boolean;
     isLoading: () => boolean;
+    hasRole: (role?: string | string[], requireAllRoles?: boolean) => boolean;
 }>;
+export { BlitzWareAuth } from "./BlitzWareAuth";
+export { BlitzWareRouteProtection, BlitzWareElementProtection, protectPage, createElementProtection } from "./RouteProtection";
+export * from "./types";
 //# sourceMappingURL=index.d.ts.map

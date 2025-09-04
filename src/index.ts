@@ -24,5 +24,18 @@ export async function createBlitzWareClient(authParams: BlitzWareAuthParams) {
     isLoading: () => {
       return blitzWareClient.getIsLoading();
     },
+    hasRole: (role?: string | string[], requireAllRoles?: boolean) => {
+      return blitzWareClient.hasRole(role, requireAllRoles);
+    },
   };
 }
+
+// Export classes and utilities for advanced usage
+export { BlitzWareAuth } from "./BlitzWareAuth";
+export { 
+  BlitzWareRouteProtection, 
+  BlitzWareElementProtection, 
+  protectPage, 
+  createElementProtection 
+} from "./RouteProtection";
+export * from "./types";

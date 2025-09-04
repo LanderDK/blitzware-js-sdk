@@ -211,4 +211,31 @@ export class BlitzWareAuth {
   getIsLoading(): boolean {
     return this.isLoading;
   }
+
+  /**
+   * Check if the current user has specific role(s)
+   * @param role - Single role string or array of roles
+   * @param requireAllRoles - If true, user must have ALL specified roles (AND logic). If false, user needs ANY role (OR logic). Default: false
+   * @returns true if user has the required role(s), false otherwise
+   */
+  hasRole(role?: string | string[], requireAllRoles: boolean = false): boolean {
+    if (!this.isAuthenticated || !this.user || !role) {
+      return false;
+    }
+
+    const userRoles = this.user.roles || [];
+    const requiredRoles = Array.isArray(role) ? role : [role];
+
+    if (requiredRoles.length === 0) {
+      return true;
+    }
+
+    if (requireAllRoles) {
+      // AND logic: user must have ALL specified roles
+      return requiredRoles.every(r => userRoles.includes(r));
+    } else {
+      // OR logic: user must have ANY of the specified roles
+      return requiredRoles.some(r => userRoles.includes(r));
+    }
+  }
 }

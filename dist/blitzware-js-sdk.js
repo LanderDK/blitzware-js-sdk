@@ -35,6 +35,17 @@
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     }
 
+    var __assign = function() {
+        __assign = Object.assign || function __assign(t) {
+            for (var s, i = 1, n = arguments.length; i < n; i++) {
+                s = arguments[i];
+                for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
+            }
+            return t;
+        };
+        return __assign.apply(this, arguments);
+    };
+
     function __awaiter(thisArg, _arguments, P, generator) {
         function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
         return new (P || (P = Promise))(function (resolve, reject) {
@@ -6262,13 +6273,28 @@
         try {
             if (!token)
                 return {};
-            var base64Url = token.split(".")[1];
-            var payload = Buffer.from(base64Url, "base64");
-            var jsonPayload = payload.toString("ascii");
+            var parts = token.split(".");
+            if (parts.length !== 3)
+                return {};
+            var base64Url = parts[1];
+            // Replace URL-safe characters and add padding if needed
+            var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            var padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+            var jsonPayload = void 0;
+            if (typeof Buffer !== 'undefined') {
+                // Node.js environment
+                var payload = Buffer.from(padded, "base64");
+                jsonPayload = payload.toString("utf8");
+            }
+            else {
+                // Browser environment
+                jsonPayload = atob(padded);
+            }
             return JSON.parse(jsonPayload);
         }
         catch (error) {
             console.error(error);
+            return {};
         }
     };
     /**
@@ -6294,7 +6320,10 @@
         var token = getToken("access_token");
         if (!token)
             return false;
-        var exp = parseJwt(token).exp;
+        var payload = parseJwt(token);
+        if (!payload || typeof payload !== 'object')
+            return false;
+        var exp = payload.exp;
         var expiration = parseExp(exp);
         if (!expiration)
             return false;
@@ -6717,8 +6746,269 @@
         BlitzWareAuth.prototype.getIsLoading = function () {
             return this.isLoading;
         };
+        /**
+         * Check if the current user has specific role(s)
+         * @param role - Single role string or array of roles
+         * @param requireAllRoles - If true, user must have ALL specified roles (AND logic). If false, user needs ANY role (OR logic). Default: false
+         * @returns true if user has the required role(s), false otherwise
+         */
+        BlitzWareAuth.prototype.hasRole = function (role, requireAllRoles) {
+            if (requireAllRoles === void 0) { requireAllRoles = false; }
+            if (!this.isAuthenticated || !this.user || !role) {
+                return false;
+            }
+            var userRoles = this.user.roles || [];
+            var requiredRoles = Array.isArray(role) ? role : [role];
+            if (requiredRoles.length === 0) {
+                return true;
+            }
+            if (requireAllRoles) {
+                // AND logic: user must have ALL specified roles
+                return requiredRoles.every(function (r) { return userRoles.includes(r); });
+            }
+            else {
+                // OR logic: user must have ANY of the specified roles
+                return requiredRoles.some(function (r) { return userRoles.includes(r); });
+            }
+        };
         return BlitzWareAuth;
     }());
+
+    /**
+     * Base route protection helper for vanilla JavaScript applications
+     */
+    var BlitzWareRouteProtection = /** @class */ (function () {
+        function BlitzWareRouteProtection(auth, options) {
+            if (options === void 0) { options = {}; }
+            this.auth = auth;
+            this.defaultOptions = __assign({ loginUrl: '/login', unauthorizedUrl: '/unauthorized', role: [], requireAllRoles: false }, options);
+        }
+        /**
+         * Check if user can access a route with specific requirements
+         */
+        BlitzWareRouteProtection.prototype.canAccess = function () {
+            return __awaiter(this, arguments, void 0, function (options) {
+                var opts;
+                if (options === void 0) { options = {}; }
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            opts = __assign(__assign({}, this.defaultOptions), options);
+                            _a.label = 1;
+                        case 1:
+                            if (!this.auth.getIsLoading()) return [3 /*break*/, 3];
+                            return [4 /*yield*/, new Promise(function (resolve) { return setTimeout(resolve, 50); })];
+                        case 2:
+                            _a.sent();
+                            return [3 /*break*/, 1];
+                        case 3:
+                            // Check authentication
+                            if (!this.auth.getIsAuthenticated()) {
+                                return [2 /*return*/, {
+                                        allowed: false,
+                                        redirectTo: opts.loginUrl,
+                                        reason: 'Not authenticated'
+                                    }];
+                            }
+                            // Check role requirements
+                            if (opts.role && (Array.isArray(opts.role) ? opts.role.length > 0 : opts.role)) {
+                                if (!this.auth.hasRole(opts.role, opts.requireAllRoles)) {
+                                    return [2 /*return*/, {
+                                            allowed: false,
+                                            redirectTo: opts.unauthorizedUrl,
+                                            reason: 'Insufficient permissions'
+                                        }];
+                                }
+                            }
+                            return [2 /*return*/, { allowed: true }];
+                    }
+                });
+            });
+        };
+        /**
+         * Protect a route by checking access and redirecting if necessary
+         */
+        BlitzWareRouteProtection.prototype.protectRoute = function () {
+            return __awaiter(this, arguments, void 0, function (options) {
+                var result, currentUrl;
+                if (options === void 0) { options = {}; }
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0: return [4 /*yield*/, this.canAccess(options)];
+                        case 1:
+                            result = _a.sent();
+                            if (!result.allowed && result.redirectTo) {
+                                // Store current URL for redirect after login
+                                if (result.reason === 'Not authenticated') {
+                                    currentUrl = window.location.pathname + window.location.search;
+                                    sessionStorage.setItem('blitzware_return_url', currentUrl);
+                                }
+                                window.location.href = result.redirectTo;
+                                return [2 /*return*/, false];
+                            }
+                            return [2 /*return*/, result.allowed];
+                    }
+                });
+            });
+        };
+        /**
+         * Create a navigation guard function that can be used with SPA routers
+         */
+        BlitzWareRouteProtection.prototype.createGuard = function (options) {
+            var _this = this;
+            if (options === void 0) { options = {}; }
+            return function () { return __awaiter(_this, void 0, void 0, function () {
+                var result, currentUrl;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0: return [4 /*yield*/, this.canAccess(options)];
+                        case 1:
+                            result = _a.sent();
+                            if (!result.allowed) {
+                                if (result.redirectTo) {
+                                    // Store current URL for redirect after login
+                                    if (result.reason === 'Not authenticated') {
+                                        currentUrl = window.location.pathname + window.location.search;
+                                        sessionStorage.setItem('blitzware_return_url', currentUrl);
+                                    }
+                                    return [2 /*return*/, result.redirectTo];
+                                }
+                                return [2 /*return*/, false];
+                            }
+                            return [2 /*return*/, true];
+                    }
+                });
+            }); };
+        };
+        /**
+         * Protect the current page on load
+         */
+        BlitzWareRouteProtection.prototype.protectCurrentPage = function () {
+            return __awaiter(this, arguments, void 0, function (options) {
+                if (options === void 0) { options = {}; }
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0: return [4 /*yield*/, this.protectRoute(options)];
+                        case 1:
+                            _a.sent();
+                            return [2 /*return*/];
+                    }
+                });
+            });
+        };
+        /**
+         * Get redirect URL after successful login
+         */
+        BlitzWareRouteProtection.prototype.getReturnUrl = function () {
+            var returnUrl = sessionStorage.getItem('blitzware_return_url');
+            sessionStorage.removeItem('blitzware_return_url');
+            return returnUrl || '/dashboard';
+        };
+        return BlitzWareRouteProtection;
+    }());
+    /**
+     * Simple role-based element visibility helper
+     */
+    var BlitzWareElementProtection = /** @class */ (function () {
+        function BlitzWareElementProtection(auth) {
+            this.auth = auth;
+        }
+        /**
+         * Show/hide elements based on authentication status
+         */
+        BlitzWareElementProtection.prototype.updateAuthElements = function () {
+            var _this = this;
+            // Show authenticated-only elements
+            document.querySelectorAll('[data-auth="authenticated"]').forEach(function (el) {
+                el.style.display = _this.auth.getIsAuthenticated() ? '' : 'none';
+            });
+            // Show unauthenticated-only elements
+            document.querySelectorAll('[data-auth="unauthenticated"]').forEach(function (el) {
+                el.style.display = _this.auth.getIsAuthenticated() ? 'none' : '';
+            });
+            // Show loading elements
+            document.querySelectorAll('[data-auth="loading"]').forEach(function (el) {
+                el.style.display = _this.auth.getIsLoading() ? '' : 'none';
+            });
+        };
+        /**
+         * Show/hide elements based on role requirements
+         */
+        BlitzWareElementProtection.prototype.updateRoleElements = function () {
+            var _this = this;
+            document.querySelectorAll('[data-role]').forEach(function (el) {
+                var element = el;
+                var roleAttr = element.getAttribute('data-role');
+                var requireAllAttr = element.getAttribute('data-require-all-roles');
+                if (roleAttr) {
+                    var roles = roleAttr.split(',').map(function (r) { return r.trim(); });
+                    var requireAll = requireAllAttr === 'true';
+                    var hasAccess = _this.auth.hasRole(roles, requireAll);
+                    element.style.display = hasAccess ? '' : 'none';
+                }
+            });
+        };
+        /**
+         * Update both auth and role-based elements
+         */
+        BlitzWareElementProtection.prototype.updateAllElements = function () {
+            this.updateAuthElements();
+            this.updateRoleElements();
+        };
+        /**
+         * Start automatic element updates when auth state changes
+         */
+        BlitzWareElementProtection.prototype.startAutoUpdate = function (interval) {
+            var _this = this;
+            if (interval === void 0) { interval = 1000; }
+            var lastAuthState = this.auth.getIsAuthenticated();
+            var lastLoadingState = this.auth.getIsLoading();
+            var lastUser = this.auth.getUser();
+            var updateLoop = function () {
+                var currentAuthState = _this.auth.getIsAuthenticated();
+                var currentLoadingState = _this.auth.getIsLoading();
+                var currentUser = _this.auth.getUser();
+                // Check if state changed
+                if (currentAuthState !== lastAuthState ||
+                    currentLoadingState !== lastLoadingState ||
+                    currentUser !== lastUser) {
+                    _this.updateAllElements();
+                    lastAuthState = currentAuthState;
+                    lastLoadingState = currentLoadingState;
+                    lastUser = currentUser;
+                }
+            };
+            var intervalId = setInterval(updateLoop, interval);
+            // Initial update
+            this.updateAllElements();
+            // Return cleanup function
+            return function () { return clearInterval(intervalId); };
+        };
+        return BlitzWareElementProtection;
+    }());
+    /**
+     * Utility function to create route protection for the current page
+     */
+    function protectPage(auth_1) {
+        return __awaiter(this, arguments, void 0, function (auth, options) {
+            var protection;
+            if (options === void 0) { options = {}; }
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        protection = new BlitzWareRouteProtection(auth, options);
+                        return [4 /*yield*/, protection.protectRoute(options)];
+                    case 1: return [2 /*return*/, _a.sent()];
+                }
+            });
+        });
+    }
+    /**
+     * Utility function to create element protection
+     */
+    function createElementProtection(auth) {
+        return new BlitzWareElementProtection(auth);
+    }
 
     function createBlitzWareClient(authParams) {
         return __awaiter(this, void 0, void 0, function () {
@@ -6756,13 +7046,22 @@
                                 isLoading: function () {
                                     return blitzWareClient.getIsLoading();
                                 },
+                                hasRole: function (role, requireAllRoles) {
+                                    return blitzWareClient.hasRole(role, requireAllRoles);
+                                },
                             }];
                 }
             });
         });
     }
 
+    exports.BlitzWareAuth = BlitzWareAuth;
+    exports.BlitzWareAuthError = BlitzWareAuthError;
+    exports.BlitzWareElementProtection = BlitzWareElementProtection;
+    exports.BlitzWareRouteProtection = BlitzWareRouteProtection;
     exports.createBlitzWareClient = createBlitzWareClient;
+    exports.createElementProtection = createElementProtection;
+    exports.protectPage = protectPage;
 
 }));
 //# sourceMappingURL=blitzware-js-sdk.js.map

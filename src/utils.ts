@@ -262,12 +262,28 @@ const removeToken = (type: "access_token" | "refresh_token") => {
 const parseJwt = (token: string) => {
   try {
     if (!token) return {};
-    const base64Url = token.split(".")[1];
-    const payload = Buffer.from(base64Url, "base64");
-    const jsonPayload = payload.toString("ascii");
+    const parts = token.split(".");
+    if (parts.length !== 3) return {};
+    
+    const base64Url = parts[1];
+    // Replace URL-safe characters and add padding if needed
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+    
+    let jsonPayload: string;
+    if (typeof Buffer !== 'undefined') {
+      // Node.js environment
+      const payload = Buffer.from(padded, "base64");
+      jsonPayload = payload.toString("utf8");
+    } else {
+      // Browser environment
+      jsonPayload = atob(padded);
+    }
+    
     return JSON.parse(jsonPayload);
   } catch (error) {
     console.error(error);
+    return {};
   }
 };
 
@@ -292,7 +308,10 @@ const isTokenValid = (): boolean => {
   const token = getToken("access_token");
   if (!token) return false;
 
-  const { exp } = parseJwt(token);
+  const payload = parseJwt(token);
+  if (!payload || typeof payload !== 'object') return false;
+  
+  const { exp } = payload;
   const expiration = parseExp(exp);
   if (!expiration) return false;
   return expiration > new Date();

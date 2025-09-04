@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BlitzWare JS Role Check Example</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <h1>BlitzWare JS Role Check Example</h1>
+    <button id="login">Login</button>
+    <button id="logout">Logout</button>
+    <div id="profile"></div>
+    
+    <!-- Role-based content sections -->
+    <div id="admin-section" class="role-section" style="display: none;">
+      <h2>Admin Dashboard</h2>
+      <p>Welcome to the admin area! You have access to:</p>
+      <ul>
+        <li>User Management</li>
+        <li>System Settings</li>
+        <li>Analytics</li>
+        <li>Security Logs</li>
+      </ul>
+    </div>
+
+    <div id="premium-section" class="role-section" style="display: none;">
+      <h2>Premium Features</h2>
+      <p>Enjoy your premium benefits:</p>
+      <ul>
+        <li>Advanced Analytics</li>
+        <li>Priority Support</li>
+        <li>Custom Themes</li>
+        <li>Export Features</li>
+      </ul>
+    </div>
+
+    <div id="user-section" class="role-section" style="display: none;">
+      <h2>User Dashboard</h2>
+      <p>Welcome! Here's what you can do:</p>
+      <ul>
+        <li>View Profile</li>
+        <li>Basic Features</li>
+        <li>Support Tickets</li>
+      </ul>
+    </div>
+
+    <div id="no-access" style="display: none;">
+      <h2>Access Required</h2>
+      <p>Please log in to access the dashboard features.</p>
+    </div>
+
+    <script src="https://cdn.blitzware.xyz/js/blitzware-js-sdk/blitzware-js-sdk.js"></script>
+    <!-- <script src="../../dist/blitzware-js-sdk.js"></script> -->
+    <script src="app.js"></script>
+  </body>
+</html>
