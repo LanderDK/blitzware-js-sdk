@@ -17,7 +17,7 @@
     "axios": "^1.7.7",
     "buffer": "^6.0.3",
     "rollup-plugin-polyfill-node": "^0.13.0",
-    "tslib": "^2.7.0",
+    "tslib": "^2.8.1",
     "typescript": "^5.5.4"
   },
   "devDependencies": {
