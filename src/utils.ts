@@ -10,16 +10,33 @@ import axios from "axios";
 const TOKEN_RE = /[?&]access_token=[^&]+/;
 const CODE_RE = /[?&]code=[^&]+/;
 const STATE_RE = /[?&]state=[^&]+/;
-const BASE_URL = "https://auth.blitzware.xyz/api/auth/";
+const DEFAULT_AUTH_BASE_URL = "https://auth.blitzware.xyz/api/auth/";
 
-// Configure axios instance with credentials for session support
-const apiClient = axios.create({
-  baseURL: BASE_URL,
-  withCredentials: true, // Include session cookies in all requests
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
+const normalizeAuthBaseUrl = (authBaseUrl?: string): string => {
+  const value = authBaseUrl || DEFAULT_AUTH_BASE_URL;
+
+  try {
+    const url = new URL(value);
+    url.pathname = url.pathname.replace(/\/+$/, "") + "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    throw new BlitzWareAuthError("Invalid authBaseUrl", "invalid_auth_base_url");
+  }
+};
+
+const buildAuthUrl = (authBaseUrl: string | undefined, path: string): string =>
+  `${normalizeAuthBaseUrl(authBaseUrl)}${path.replace(/^\/+/, "")}`;
+
+const createApiClient = (authBaseUrl?: string) =>
+  axios.create({
+    baseURL: normalizeAuthBaseUrl(authBaseUrl),
+    withCredentials: true, // Include session cookies in all requests
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 
 /**
  * Parses an API error response and creates a BlitzWareAuthError.
@@ -77,10 +94,15 @@ const hasAuthParams = (searchParams = window.location.search): boolean =>
  * @returns The full authorization URL.
  */
 const generateAuthUrl = async (
-  { responseType = "code", clientId, redirectUri }: BlitzWareAuthParams,
+  {
+    responseType = "code",
+    clientId,
+    redirectUri,
+    authBaseUrl,
+  }: BlitzWareAuthParams,
   state: string
 ): Promise<string> => {
-  const authUrl = BASE_URL + "authorize";
+  const authUrl = buildAuthUrl(authBaseUrl, "authorize");
   const queryParams = new URLSearchParams({
     response_type: responseType,
     client_id: clientId,
@@ -110,7 +132,8 @@ const generateAuthUrl = async (
 const exchangeCodeForToken = async (
   code: string,
   clientId: string,
-  redirectUri: string
+  redirectUri: string,
+  authBaseUrl?: string
 ): Promise<{ access_token: string; refresh_token?: string }> => {
   const codeVerifier = getCodeVerifier();
   if (!codeVerifier)
@@ -120,6 +143,7 @@ const exchangeCodeForToken = async (
     );
 
   try {
+    const apiClient = createApiClient(authBaseUrl);
     const response = await apiClient.post("token", {
       grant_type: "authorization_code",
       code,
@@ -148,10 +172,15 @@ const exchangeCodeForToken = async (
  */
 const fetchUserInfo = async (
   clientId: string,
-  clientSecret?: string
+  clientSecret?: string,
+  authBaseUrl?: string
 ): Promise<BlitzWareAuthUser> => {
   // First validate the token using introspection
-  const tokenValidation = await validateAccessToken(clientId, clientSecret);
+  const tokenValidation = await validateAccessToken(
+    clientId,
+    clientSecret,
+    authBaseUrl
+  );
 
   if (!tokenValidation.active) {
     throw new BlitzWareAuthError(
@@ -170,6 +199,7 @@ const fetchUserInfo = async (
   }
 
   try {
+    const apiClient = createApiClient(authBaseUrl);
     const response = await apiClient.get("userinfo", {
       params: {
         access_token: accessToken,
@@ -191,10 +221,15 @@ const fetchUserInfo = async (
  */
 const tryRefreshToken = async (
   clientId: string,
-  clientSecret?: string
+  clientSecret?: string,
+  authBaseUrl?: string
 ): Promise<{ access_token: string; refresh_token?: string }> => {
   // First validate the refresh token using introspection
-  const tokenValidation = await validateRefreshToken(clientId, clientSecret);
+  const tokenValidation = await validateRefreshToken(
+    clientId,
+    clientSecret,
+    authBaseUrl
+  );
 
   if (!tokenValidation.active) {
     throw new BlitzWareAuthError(
@@ -211,6 +246,7 @@ const tryRefreshToken = async (
     );
 
   try {
+    const apiClient = createApiClient(authBaseUrl);
     const response = await apiClient.post("token", {
       grant_type: "refresh_token",
       refresh_token: refreshToken,
@@ -327,7 +363,8 @@ const isTokenValid = (): boolean => {
  */
 const validateAccessToken = async (
   clientId: string,
-  clientSecret?: string
+  clientSecret?: string,
+  authBaseUrl?: string
 ): Promise<TokenIntrospectionResponse> => {
   const token = getToken("access_token");
   if (!token) {
@@ -335,7 +372,13 @@ const validateAccessToken = async (
   }
 
   try {
-    return await introspectToken(token, "access_token", clientId, clientSecret);
+    return await introspectToken(
+      token,
+      "access_token",
+      clientId,
+      clientSecret,
+      authBaseUrl
+    );
   } catch (error) {
     // If introspection fails, token is considered invalid
     return { active: false };
@@ -351,7 +394,8 @@ const validateAccessToken = async (
  */
 const validateRefreshToken = async (
   clientId: string,
-  clientSecret?: string
+  clientSecret?: string,
+  authBaseUrl?: string
 ): Promise<TokenIntrospectionResponse> => {
   const token = getToken("refresh_token");
   if (!token) {
@@ -363,7 +407,8 @@ const validateRefreshToken = async (
       token,
       "refresh_token",
       clientId,
-      clientSecret
+      clientSecret,
+      authBaseUrl
     );
   } catch (error) {
     // If introspection fails, token is considered invalid
@@ -465,8 +510,12 @@ const generateSecureState = (): string => {
  * @returns Promise that resolves when logout is complete.
  * @throws BlitzWareAuthError if logout fails.
  */
-const logoutFromService = async (clientId: string): Promise<void> => {
+const logoutFromService = async (
+  clientId: string,
+  authBaseUrl?: string
+): Promise<void> => {
   try {
+    const apiClient = createApiClient(authBaseUrl);
     await apiClient.post("logout", { client_id: clientId });
   } catch (error) {
     throw parseApiError(error, "Failed to log out", "logout_failed");
@@ -487,7 +536,8 @@ const introspectToken = async (
   token: string,
   tokenTypeHint: "access_token" | "refresh_token",
   clientId: string,
-  clientSecret?: string
+  clientSecret?: string,
+  authBaseUrl?: string
 ): Promise<TokenIntrospectionResponse> => {
   try {
     const requestBody: {
@@ -506,6 +556,7 @@ const introspectToken = async (
       requestBody.client_secret = clientSecret;
     }
 
+    const apiClient = createApiClient(authBaseUrl);
     const response = await apiClient.post("introspect", requestBody);
 
     return response.data;
@@ -529,9 +580,11 @@ const introspectToken = async (
 const revokeToken = async (
   token: string,
   tokenTypeHint: "access_token" | "refresh_token",
-  clientId: string
+  clientId: string,
+  authBaseUrl?: string
 ): Promise<void> => {
   try {
+    const apiClient = createApiClient(authBaseUrl);
     await apiClient.post("revoke", {
       token,
       token_type_hint: tokenTypeHint,
@@ -545,6 +598,7 @@ const revokeToken = async (
 export {
   clearSession,
   hasAuthParams,
+  normalizeAuthBaseUrl,
   generateAuthUrl,
   exchangeCodeForToken,
   fetchUserInfo,

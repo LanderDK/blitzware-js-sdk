@@ -38,20 +38,30 @@ export class BlitzWareAuth {
     try {
       if (!hasAuthParams()) {
         if (isTokenValid()) {
-          const userData = await fetchUserInfo(this.authParams.clientId);
+          const userData = await fetchUserInfo(
+            this.authParams.clientId,
+            undefined,
+            this.authParams.authBaseUrl
+          );
           this.setUser(userData);
           this.setIsAuthenticated(true);
         } else {
           try {
             const tokenResponse = await tryRefreshToken(
-              this.authParams.clientId
+              this.authParams.clientId,
+              undefined,
+              this.authParams.authBaseUrl
             );
             setToken("access_token", tokenResponse.access_token);
             if (tokenResponse.refresh_token) {
               setToken("refresh_token", tokenResponse.refresh_token);
             }
 
-            const userData = await fetchUserInfo(this.authParams.clientId);
+            const userData = await fetchUserInfo(
+              this.authParams.clientId,
+              undefined,
+              this.authParams.authBaseUrl
+            );
             this.setUser(userData);
             this.setIsAuthenticated(true);
           } catch (error) {
@@ -103,7 +113,8 @@ export class BlitzWareAuth {
           const tokenResponse = await exchangeCodeForToken(
             code,
             this.authParams.clientId,
-            this.authParams.redirectUri
+            this.authParams.redirectUri,
+            this.authParams.authBaseUrl
           );
 
           // Store tokens
@@ -113,7 +124,11 @@ export class BlitzWareAuth {
           }
 
           // Fetch user info
-          const userData = await fetchUserInfo(this.authParams.clientId);
+          const userData = await fetchUserInfo(
+            this.authParams.clientId,
+            undefined,
+            this.authParams.authBaseUrl
+          );
           this.setUser(userData);
           this.setIsAuthenticated(true);
 
@@ -129,7 +144,11 @@ export class BlitzWareAuth {
           if (accessToken) {
             setToken("access_token", accessToken);
 
-            const userData = await fetchUserInfo(this.authParams.clientId);
+            const userData = await fetchUserInfo(
+              this.authParams.clientId,
+              undefined,
+              this.authParams.authBaseUrl
+            );
             this.setUser(userData);
             this.setIsAuthenticated(true);
 
@@ -177,7 +196,10 @@ export class BlitzWareAuth {
   async logout(): Promise<void> {
     this.setIsLoading(true);
     try {
-      await logoutFromService(this.authParams.clientId);
+      await logoutFromService(
+        this.authParams.clientId,
+        this.authParams.authBaseUrl
+      );
     } catch (error) {
       console.error("Failed to logout from service:", error);
     }

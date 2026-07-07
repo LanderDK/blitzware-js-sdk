@@ -6041,15 +6041,32 @@
     var TOKEN_RE = /[?&]access_token=[^&]+/;
     var CODE_RE = /[?&]code=[^&]+/;
     var STATE_RE = /[?&]state=[^&]+/;
-    var BASE_URL = "https://auth.blitzware.xyz/api/auth/";
-    // Configure axios instance with credentials for session support
-    var apiClient = axios.create({
-        baseURL: BASE_URL,
-        withCredentials: true, // Include session cookies in all requests
-        headers: {
-            "Content-Type": "application/json",
-        },
-    });
+    var DEFAULT_AUTH_BASE_URL = "https://auth.blitzware.xyz/api/auth/";
+    var normalizeAuthBaseUrl = function (authBaseUrl) {
+        var value = authBaseUrl || DEFAULT_AUTH_BASE_URL;
+        try {
+            var url = new URL(value);
+            url.pathname = url.pathname.replace(/\/+$/, "") + "/";
+            url.search = "";
+            url.hash = "";
+            return url.toString();
+        }
+        catch (_a) {
+            throw new BlitzWareAuthError("Invalid authBaseUrl", "invalid_auth_base_url");
+        }
+    };
+    var buildAuthUrl = function (authBaseUrl, path) {
+        return "".concat(normalizeAuthBaseUrl(authBaseUrl)).concat(path.replace(/^\/+/, ""));
+    };
+    var createApiClient = function (authBaseUrl) {
+        return axios.create({
+            baseURL: normalizeAuthBaseUrl(authBaseUrl),
+            withCredentials: true, // Include session cookies in all requests
+            headers: {
+                "Content-Type": "application/json",
+            },
+        });
+    };
     /**
      * Parses an API error response and creates a BlitzWareAuthError.
      * @param error - The axios error or generic error.
@@ -6097,11 +6114,11 @@
      */
     var generateAuthUrl = function (_a, state_1) { return __awaiter(void 0, [_a, state_1], void 0, function (_b, state) {
         var authUrl, queryParams, verifier, challenge;
-        var _c = _b.responseType, responseType = _c === void 0 ? "code" : _c, clientId = _b.clientId, redirectUri = _b.redirectUri;
+        var _c = _b.responseType, responseType = _c === void 0 ? "code" : _c, clientId = _b.clientId, redirectUri = _b.redirectUri, authBaseUrl = _b.authBaseUrl;
         return __generator(this, function (_d) {
             switch (_d.label) {
                 case 0:
-                    authUrl = BASE_URL + "authorize";
+                    authUrl = buildAuthUrl(authBaseUrl, "authorize");
                     queryParams = new URLSearchParams({
                         response_type: responseType,
                         client_id: clientId,
@@ -6129,8 +6146,8 @@
      * @returns An object containing the access token and optionally a refresh token.
      * @throws BlitzWareAuthError if the code_verifier is missing or the exchange fails.
      */
-    var exchangeCodeForToken = function (code, clientId, redirectUri) { return __awaiter(void 0, void 0, void 0, function () {
-        var codeVerifier, response, error_1;
+    var exchangeCodeForToken = function (code, clientId, redirectUri, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
+        var codeVerifier, apiClient, response, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -6140,6 +6157,7 @@
                     _a.label = 1;
                 case 1:
                     _a.trys.push([1, 3, , 4]);
+                    apiClient = createApiClient(authBaseUrl);
                     return [4 /*yield*/, apiClient.post("token", {
                             grant_type: "authorization_code",
                             code: code,
@@ -6166,11 +6184,11 @@
      * @returns The authenticated user's information.
      * @throws BlitzWareAuthError if the token is invalid or request fails.
      */
-    var fetchUserInfo = function (clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
-        var tokenValidation, accessToken, response, error_2;
+    var fetchUserInfo = function (clientId, clientSecret, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
+        var tokenValidation, accessToken, apiClient, response, error_2;
         return __generator(this, function (_a) {
             switch (_a.label) {
-                case 0: return [4 /*yield*/, validateAccessToken(clientId)];
+                case 0: return [4 /*yield*/, validateAccessToken(clientId, clientSecret, authBaseUrl)];
                 case 1:
                     tokenValidation = _a.sent();
                     if (!tokenValidation.active) {
@@ -6183,6 +6201,7 @@
                     _a.label = 2;
                 case 2:
                     _a.trys.push([2, 4, , 5]);
+                    apiClient = createApiClient(authBaseUrl);
                     return [4 /*yield*/, apiClient.get("userinfo", {
                             params: {
                                 access_token: accessToken,
@@ -6206,11 +6225,11 @@
      * @returns An object containing the new access token and optionally a new refresh token.
      * @throws BlitzWareAuthError if refresh token is invalid or refresh fails.
      */
-    var tryRefreshToken = function (clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
-        var tokenValidation, refreshToken, response, error_3;
+    var tryRefreshToken = function (clientId, clientSecret, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
+        var tokenValidation, refreshToken, apiClient, response, error_3;
         return __generator(this, function (_a) {
             switch (_a.label) {
-                case 0: return [4 /*yield*/, validateRefreshToken(clientId)];
+                case 0: return [4 /*yield*/, validateRefreshToken(clientId, clientSecret, authBaseUrl)];
                 case 1:
                     tokenValidation = _a.sent();
                     if (!tokenValidation.active) {
@@ -6222,6 +6241,7 @@
                     _a.label = 2;
                 case 2:
                     _a.trys.push([2, 4, , 5]);
+                    apiClient = createApiClient(authBaseUrl);
                     return [4 /*yield*/, apiClient.post("token", {
                             grant_type: "refresh_token",
                             refresh_token: refreshToken,
@@ -6337,7 +6357,7 @@
      * @returns Promise that resolves to introspection result.
      * @throws BlitzWareAuthError if validation fails.
      */
-    var validateAccessToken = function (clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
+    var validateAccessToken = function (clientId, clientSecret, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
         var token;
         return __generator(this, function (_a) {
             switch (_a.label) {
@@ -6349,7 +6369,7 @@
                     _a.label = 1;
                 case 1:
                     _a.trys.push([1, 3, , 4]);
-                    return [4 /*yield*/, introspectToken(token, "access_token", clientId)];
+                    return [4 /*yield*/, introspectToken(token, "access_token", clientId, clientSecret, authBaseUrl)];
                 case 2: return [2 /*return*/, _a.sent()];
                 case 3:
                     _a.sent();
@@ -6366,7 +6386,7 @@
      * @returns Promise that resolves to introspection result.
      * @throws BlitzWareAuthError if validation fails.
      */
-    var validateRefreshToken = function (clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
+    var validateRefreshToken = function (clientId, clientSecret, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
         var token;
         return __generator(this, function (_a) {
             switch (_a.label) {
@@ -6378,7 +6398,7 @@
                     _a.label = 1;
                 case 1:
                     _a.trys.push([1, 3, , 4]);
-                    return [4 /*yield*/, introspectToken(token, "refresh_token", clientId)];
+                    return [4 /*yield*/, introspectToken(token, "refresh_token", clientId, clientSecret, authBaseUrl)];
                 case 2: return [2 /*return*/, _a.sent()];
                 case 3:
                     _a.sent();
@@ -6481,12 +6501,13 @@
      * @returns Promise that resolves when logout is complete.
      * @throws BlitzWareAuthError if logout fails.
      */
-    var logoutFromService = function (clientId) { return __awaiter(void 0, void 0, void 0, function () {
-        var error_6;
+    var logoutFromService = function (clientId, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
+        var apiClient, error_6;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
                     _a.trys.push([0, 2, , 3]);
+                    apiClient = createApiClient(authBaseUrl);
                     return [4 /*yield*/, apiClient.post("logout", { client_id: clientId })];
                 case 1:
                     _a.sent();
@@ -6508,8 +6529,8 @@
      * @returns Token introspection response.
      * @throws BlitzWareAuthError if introspection fails.
      */
-    var introspectToken = function (token, tokenTypeHint, clientId, clientSecret) { return __awaiter(void 0, void 0, void 0, function () {
-        var requestBody, response, error_7;
+    var introspectToken = function (token, tokenTypeHint, clientId, clientSecret, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
+        var requestBody, apiClient, response, error_7;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -6519,6 +6540,7 @@
                         token_type_hint: tokenTypeHint,
                         client_id: clientId,
                     };
+                    apiClient = createApiClient(authBaseUrl);
                     return [4 /*yield*/, apiClient.post("introspect", requestBody)];
                 case 1:
                     response = _a.sent();
@@ -6554,7 +6576,7 @@
                             _a.trys.push([1, 8, 9, 10]);
                             if (!!hasAuthParams()) return [3 /*break*/, 7];
                             if (!isTokenValid()) return [3 /*break*/, 3];
-                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId)];
+                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
                         case 2:
                             userData = _a.sent();
                             this.setUser(userData);
@@ -6562,14 +6584,14 @@
                             return [3 /*break*/, 7];
                         case 3:
                             _a.trys.push([3, 6, , 7]);
-                            return [4 /*yield*/, tryRefreshToken(this.authParams.clientId)];
+                            return [4 /*yield*/, tryRefreshToken(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
                         case 4:
                             tokenResponse = _a.sent();
                             setToken("access_token", tokenResponse.access_token);
                             if (tokenResponse.refresh_token) {
                                 setToken("refresh_token", tokenResponse.refresh_token);
                             }
-                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId)];
+                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
                         case 5:
                             userData = _a.sent();
                             this.setUser(userData);
@@ -6624,7 +6646,7 @@
                             }
                             code = urlParams.get("code");
                             if (!code) return [3 /*break*/, 5];
-                            return [4 /*yield*/, exchangeCodeForToken(code, this.authParams.clientId, this.authParams.redirectUri)];
+                            return [4 /*yield*/, exchangeCodeForToken(code, this.authParams.clientId, this.authParams.redirectUri, this.authParams.authBaseUrl)];
                         case 3:
                             tokenResponse = _a.sent();
                             // Store tokens
@@ -6632,7 +6654,7 @@
                             if (tokenResponse.refresh_token) {
                                 setToken("refresh_token", tokenResponse.refresh_token);
                             }
-                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId)];
+                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
                         case 4:
                             userData = _a.sent();
                             this.setUser(userData);
@@ -6644,7 +6666,7 @@
                             accessToken = urlParams.get("access_token");
                             if (!accessToken) return [3 /*break*/, 7];
                             setToken("access_token", accessToken);
-                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId)];
+                            return [4 /*yield*/, fetchUserInfo(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
                         case 6:
                             userData = _a.sent();
                             this.setUser(userData);
@@ -6709,7 +6731,7 @@
                             _a.label = 1;
                         case 1:
                             _a.trys.push([1, 3, , 4]);
-                            return [4 /*yield*/, logoutFromService(this.authParams.clientId)];
+                            return [4 /*yield*/, logoutFromService(this.authParams.clientId, this.authParams.authBaseUrl)];
                         case 2:
                             _a.sent();
                             return [3 /*break*/, 4];

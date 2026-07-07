@@ -2,6 +2,7 @@ BlitzWareAuth.createBlitzWareClient({
   clientId: "your-client-id",
   redirectUri: "your-redirect-uri",
   responseType: "code", // or "token"
+  // authBaseUrl: "https://acme.auth.blitzware.xyz/api/auth/",
 }).then(async (blitzWareClient) => {
   document.getElementById("login").addEventListener("click", (e) => {
     e.preventDefault();

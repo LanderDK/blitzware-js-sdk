@@ -33,7 +33,8 @@ import {
   tryRefreshToken,
   generateSecureState,
   logoutFromService,
-  clearSession
+  clearSession,
+  normalizeAuthBaseUrl
 } from '../src/utils';
 
 // Mock axios
@@ -193,6 +194,32 @@ describe('Utility Functions', () => {
       expect(url).toContain('client_id=test%20client%20id');
       expect(url).toContain('redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback%3Fparam%3Dvalue');
       expect(url).toContain('state=test%20state%20with%20spaces');
+    });
+
+    it('should use a custom managed auth base URL', async () => {
+      const url = await generateAuthUrl({
+        clientId: 'test-client-id',
+        redirectUri: 'http://localhost:3000/callback',
+        authBaseUrl: 'https://acme.auth.blitzware.xyz/api/auth'
+      }, 'test-state');
+
+      expect(url).toContain('https://acme.auth.blitzware.xyz/api/auth/authorize');
+      expect(url).not.toContain('/api/auth//authorize');
+    });
+  });
+
+  describe('normalizeAuthBaseUrl', () => {
+    it('keeps the default auth URL when omitted', () => {
+      expect(normalizeAuthBaseUrl()).toBe('https://auth.blitzware.xyz/api/auth/');
+    });
+
+    it('normalizes trailing slashes', () => {
+      expect(normalizeAuthBaseUrl('https://acme.auth.blitzware.xyz/api/auth')).toBe(
+        'https://acme.auth.blitzware.xyz/api/auth/'
+      );
+      expect(normalizeAuthBaseUrl('https://acme.auth.blitzware.xyz/api/auth/')).toBe(
+        'https://acme.auth.blitzware.xyz/api/auth/'
+      );
     });
   });
 

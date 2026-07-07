@@ -1,4 +1,5 @@
 import { BlitzWareAuthParams, BlitzWareAuthUser } from "./types";
+declare const normalizeAuthBaseUrl: (authBaseUrl?: string) => string;
 /**
  * Clears the current session by removing all stored tokens and state.
  */
@@ -15,7 +16,7 @@ declare const hasAuthParams: (searchParams?: string) => boolean;
  * @param state - The state string to include in the request.
  * @returns The full authorization URL.
  */
-declare const generateAuthUrl: ({ responseType, clientId, redirectUri }: BlitzWareAuthParams, state: string) => Promise<string>;
+declare const generateAuthUrl: ({ responseType, clientId, redirectUri, authBaseUrl, }: BlitzWareAuthParams, state: string) => Promise<string>;
 /**
  * Exchanges an authorization code for access and refresh tokens.
  * @param code - The authorization code received from the authorization server.
@@ -24,7 +25,7 @@ declare const generateAuthUrl: ({ responseType, clientId, redirectUri }: BlitzWa
  * @returns An object containing the access token and optionally a refresh token.
  * @throws BlitzWareAuthError if the code_verifier is missing or the exchange fails.
  */
-declare const exchangeCodeForToken: (code: string, clientId: string, redirectUri: string) => Promise<{
+declare const exchangeCodeForToken: (code: string, clientId: string, redirectUri: string, authBaseUrl?: string) => Promise<{
     access_token: string;
     refresh_token?: string;
 }>;
@@ -36,7 +37,7 @@ declare const exchangeCodeForToken: (code: string, clientId: string, redirectUri
  * @returns The authenticated user's information.
  * @throws BlitzWareAuthError if the token is invalid or request fails.
  */
-declare const fetchUserInfo: (clientId: string, clientSecret?: string) => Promise<BlitzWareAuthUser>;
+declare const fetchUserInfo: (clientId: string, clientSecret?: string, authBaseUrl?: string) => Promise<BlitzWareAuthUser>;
 /**
  * Attempts to refresh the access token using the stored refresh token with validation.
  * Validates the refresh token before attempting to use it.
@@ -45,7 +46,7 @@ declare const fetchUserInfo: (clientId: string, clientSecret?: string) => Promis
  * @returns An object containing the new access token and optionally a new refresh token.
  * @throws BlitzWareAuthError if refresh token is invalid or refresh fails.
  */
-declare const tryRefreshToken: (clientId: string, clientSecret?: string) => Promise<{
+declare const tryRefreshToken: (clientId: string, clientSecret?: string, authBaseUrl?: string) => Promise<{
     access_token: string;
     refresh_token?: string;
 }>;
@@ -83,6 +84,6 @@ declare const generateSecureState: () => string;
  * @returns Promise that resolves when logout is complete.
  * @throws BlitzWareAuthError if logout fails.
  */
-declare const logoutFromService: (clientId: string) => Promise<void>;
-export { clearSession, hasAuthParams, generateAuthUrl, exchangeCodeForToken, fetchUserInfo, tryRefreshToken, setToken, isTokenValid, setState, getState, generateSecureState, logoutFromService, };
+declare const logoutFromService: (clientId: string, authBaseUrl?: string) => Promise<void>;
+export { clearSession, hasAuthParams, normalizeAuthBaseUrl, generateAuthUrl, exchangeCodeForToken, fetchUserInfo, tryRefreshToken, setToken, isTokenValid, setState, getState, generateSecureState, logoutFromService, };
 //# sourceMappingURL=utils.d.ts.map
