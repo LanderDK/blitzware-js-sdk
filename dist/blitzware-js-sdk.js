@@ -6093,6 +6093,7 @@
     var clearSession = function () {
         removeToken("access_token");
         removeToken("refresh_token");
+        removeToken("id_token");
         removeState();
         removeCodeVerifier();
     };
@@ -6252,6 +6253,9 @@
                     setToken("access_token", response.data.access_token);
                     if (response.data.refresh_token) {
                         setToken("refresh_token", response.data.refresh_token);
+                    }
+                    if (response.data.id_token) {
+                        setToken("id_token", response.data.id_token);
                     }
                     return [2 /*return*/, response.data];
                 case 4:
@@ -6591,6 +6595,9 @@
                             if (tokenResponse.refresh_token) {
                                 setToken("refresh_token", tokenResponse.refresh_token);
                             }
+                            if (tokenResponse.id_token) {
+                                setToken("id_token", tokenResponse.id_token);
+                            }
                             return [4 /*yield*/, fetchUserInfo(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
                         case 5:
                             userData = _a.sent();
@@ -6653,6 +6660,9 @@
                             setToken("access_token", tokenResponse.access_token);
                             if (tokenResponse.refresh_token) {
                                 setToken("refresh_token", tokenResponse.refresh_token);
+                            }
+                            if (tokenResponse.id_token) {
+                                setToken("id_token", tokenResponse.id_token);
                             }
                             return [4 /*yield*/, fetchUserInfo(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
                         case 4:

@@ -74,6 +74,7 @@ const parseApiError = (
 const clearSession = (): void => {
   removeToken("access_token");
   removeToken("refresh_token");
+  removeToken("id_token");
   removeState();
   removeCodeVerifier();
 };
@@ -134,7 +135,7 @@ const exchangeCodeForToken = async (
   clientId: string,
   redirectUri: string,
   authBaseUrl?: string
-): Promise<{ access_token: string; refresh_token?: string }> => {
+): Promise<{ access_token: string; refresh_token?: string; id_token?: string }> => {
   const codeVerifier = getCodeVerifier();
   if (!codeVerifier)
     throw new BlitzWareAuthError(
@@ -223,7 +224,7 @@ const tryRefreshToken = async (
   clientId: string,
   clientSecret?: string,
   authBaseUrl?: string
-): Promise<{ access_token: string; refresh_token?: string }> => {
+): Promise<{ access_token: string; refresh_token?: string; id_token?: string }> => {
   // First validate the refresh token using introspection
   const tokenValidation = await validateRefreshToken(
     clientId,
@@ -257,6 +258,9 @@ const tryRefreshToken = async (
     if (response.data.refresh_token) {
       setToken("refresh_token", response.data.refresh_token);
     }
+    if (response.data.id_token) {
+      setToken("id_token", response.data.id_token);
+    }
 
     return response.data;
   } catch (error) {
@@ -269,7 +273,10 @@ const tryRefreshToken = async (
  * @param type - The type of token ("access_token" or "refresh_token").
  * @param token - The token value.
  */
-const setToken = (type: "access_token" | "refresh_token", token: string) => {
+const setToken = (
+  type: "access_token" | "refresh_token" | "id_token",
+  token: string
+) => {
   localStorage.setItem(type, token);
 };
 
@@ -278,7 +285,9 @@ const setToken = (type: "access_token" | "refresh_token", token: string) => {
  * @param type - The type of token ("access_token" or "refresh_token").
  * @returns The token value or null if not found.
  */
-const getToken = (type: "access_token" | "refresh_token"): string | null => {
+const getToken = (
+  type: "access_token" | "refresh_token" | "id_token"
+): string | null => {
   return localStorage.getItem(type);
 };
 
@@ -286,7 +295,7 @@ const getToken = (type: "access_token" | "refresh_token"): string | null => {
  * Removes an access or refresh token from localStorage.
  * @param type - The type of token ("access_token" or "refresh_token").
  */
-const removeToken = (type: "access_token" | "refresh_token") => {
+const removeToken = (type: "access_token" | "refresh_token" | "id_token") => {
   localStorage.removeItem(type);
 };
 

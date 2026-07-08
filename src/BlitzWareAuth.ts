@@ -56,6 +56,9 @@ export class BlitzWareAuth {
             if (tokenResponse.refresh_token) {
               setToken("refresh_token", tokenResponse.refresh_token);
             }
+            if (tokenResponse.id_token) {
+              setToken("id_token", tokenResponse.id_token);
+            }
 
             const userData = await fetchUserInfo(
               this.authParams.clientId,
@@ -121,6 +124,9 @@ export class BlitzWareAuth {
           setToken("access_token", tokenResponse.access_token);
           if (tokenResponse.refresh_token) {
             setToken("refresh_token", tokenResponse.refresh_token);
+          }
+          if (tokenResponse.id_token) {
+            setToken("id_token", tokenResponse.id_token);
           }
 
           // Fetch user info
