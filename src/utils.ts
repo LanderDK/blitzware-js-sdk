@@ -54,6 +54,16 @@ const parseApiError = (
   if (error?.response?.data) {
     const responseData = error.response.data;
 
+    // OAuth token endpoints use the RFC 6749 error shape rather than the
+    // provider's general { code, message, details } API error shape.
+    if (typeof responseData.error === "string") {
+      return new BlitzWareAuthError(
+        responseData.error_description || fallbackMessage,
+        responseData.error,
+        responseData
+      );
+    }
+
     // Check if response matches our API error format
     if (responseData.code && responseData.message) {
       return new BlitzWareAuthError(
@@ -213,8 +223,7 @@ const fetchUserInfo = async (
 };
 
 /**
- * Attempts to refresh the access token using the stored refresh token with validation.
- * Validates the refresh token before attempting to use it.
+ * Attempts to refresh the access token using the stored refresh token.
  * @param clientId - The client ID.
  * @param clientSecret - The client secret (optional for public clients).
  * @returns An object containing the new access token and optionally a new refresh token.
@@ -225,20 +234,6 @@ const tryRefreshToken = async (
   clientSecret?: string,
   authBaseUrl?: string
 ): Promise<{ access_token: string; refresh_token?: string; id_token?: string }> => {
-  // First validate the refresh token using introspection
-  const tokenValidation = await validateRefreshToken(
-    clientId,
-    clientSecret,
-    authBaseUrl
-  );
-
-  if (!tokenValidation.active) {
-    throw new BlitzWareAuthError(
-      "Refresh token is not active or has expired",
-      "refresh_token_inactive"
-    );
-  }
-
   const refreshToken = getToken("refresh_token");
   if (!refreshToken)
     throw new BlitzWareAuthError(
@@ -349,7 +344,7 @@ const parseExp = (exp: number | string) => {
  * This is a quick local check based on JWT expiration.
  * @returns True if the token appears valid locally, false otherwise.
  */
-const isTokenValid = (): boolean => {
+const isTokenValid = (minValiditySeconds = 0): boolean => {
   const token = getToken("access_token");
   if (!token) return false;
 
@@ -359,7 +354,7 @@ const isTokenValid = (): boolean => {
   const { exp } = payload;
   const expiration = parseExp(exp);
   if (!expiration) return false;
-  return expiration > new Date();
+  return expiration.getTime() > Date.now() + Math.max(0, minValiditySeconds) * 1000;
 };
 
 /**
@@ -613,6 +608,7 @@ export {
   fetchUserInfo,
   tryRefreshToken,
   setToken,
+  getToken,
   isTokenValid,
   setState,
   getState,

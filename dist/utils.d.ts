@@ -40,8 +40,7 @@ declare const exchangeCodeForToken: (code: string, clientId: string, redirectUri
  */
 declare const fetchUserInfo: (clientId: string, clientSecret?: string, authBaseUrl?: string) => Promise<BlitzWareAuthUser>;
 /**
- * Attempts to refresh the access token using the stored refresh token with validation.
- * Validates the refresh token before attempting to use it.
+ * Attempts to refresh the access token using the stored refresh token.
  * @param clientId - The client ID.
  * @param clientSecret - The client secret (optional for public clients).
  * @returns An object containing the new access token and optionally a new refresh token.
@@ -59,11 +58,17 @@ declare const tryRefreshToken: (clientId: string, clientSecret?: string, authBas
  */
 declare const setToken: (type: "access_token" | "refresh_token" | "id_token", token: string) => void;
 /**
+ * Retrieves an access or refresh token from localStorage.
+ * @param type - The type of token ("access_token" or "refresh_token").
+ * @returns The token value or null if not found.
+ */
+declare const getToken: (type: "access_token" | "refresh_token" | "id_token") => string | null;
+/**
  * Checks if the stored access token is valid (not expired).
  * This is a quick local check based on JWT expiration.
  * @returns True if the token appears valid locally, false otherwise.
  */
-declare const isTokenValid: () => boolean;
+declare const isTokenValid: (minValiditySeconds?: number) => boolean;
 /**
  * Stores the OAuth state value in localStorage.
  * @param state - The state string.
@@ -87,5 +92,5 @@ declare const generateSecureState: () => string;
  * @throws BlitzWareAuthError if logout fails.
  */
 declare const logoutFromService: (clientId: string, authBaseUrl?: string) => Promise<void>;
-export { clearSession, hasAuthParams, normalizeAuthBaseUrl, generateAuthUrl, exchangeCodeForToken, fetchUserInfo, tryRefreshToken, setToken, isTokenValid, setState, getState, generateSecureState, logoutFromService, };
+export { clearSession, hasAuthParams, normalizeAuthBaseUrl, generateAuthUrl, exchangeCodeForToken, fetchUserInfo, tryRefreshToken, setToken, getToken, isTokenValid, setState, getState, generateSecureState, logoutFromService, };
 //# sourceMappingURL=utils.d.ts.map

@@ -84,6 +84,16 @@
         }
     }
 
+    function __spreadArray(to, from, pack) {
+        if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+            if (ar || !(i in from)) {
+                if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+                ar[i] = from[i];
+            }
+        }
+        return to.concat(ar || Array.prototype.slice.call(from));
+    }
+
     typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
         var e = new Error(message);
         return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
@@ -6079,6 +6089,11 @@
         // Check if it's an axios error with response data
         if ((_a = error === null || error === void 0 ? void 0 : error.response) === null || _a === void 0 ? void 0 : _a.data) {
             var responseData = error.response.data;
+            // OAuth token endpoints use the RFC 6749 error shape rather than the
+            // provider's general { code, message, details } API error shape.
+            if (typeof responseData.error === "string") {
+                return new BlitzWareAuthError(responseData.error_description || fallbackMessage, responseData.error, responseData);
+            }
             // Check if response matches our API error format
             if (responseData.code && responseData.message) {
                 return new BlitzWareAuthError(responseData.message, responseData.code, responseData.details);
@@ -6219,36 +6234,30 @@
         });
     }); };
     /**
-     * Attempts to refresh the access token using the stored refresh token with validation.
-     * Validates the refresh token before attempting to use it.
+     * Attempts to refresh the access token using the stored refresh token.
      * @param clientId - The client ID.
      * @param clientSecret - The client secret (optional for public clients).
      * @returns An object containing the new access token and optionally a new refresh token.
      * @throws BlitzWareAuthError if refresh token is invalid or refresh fails.
      */
     var tryRefreshToken = function (clientId, clientSecret, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
-        var tokenValidation, refreshToken, apiClient, response, error_3;
+        var refreshToken, apiClient, response, error_3;
         return __generator(this, function (_a) {
             switch (_a.label) {
-                case 0: return [4 /*yield*/, validateRefreshToken(clientId, clientSecret, authBaseUrl)];
-                case 1:
-                    tokenValidation = _a.sent();
-                    if (!tokenValidation.active) {
-                        throw new BlitzWareAuthError("Refresh token is not active or has expired", "refresh_token_inactive");
-                    }
+                case 0:
                     refreshToken = getToken("refresh_token");
                     if (!refreshToken)
                         throw new BlitzWareAuthError("No refresh token available", "no_refresh_token");
-                    _a.label = 2;
-                case 2:
-                    _a.trys.push([2, 4, , 5]);
+                    _a.label = 1;
+                case 1:
+                    _a.trys.push([1, 3, , 4]);
                     apiClient = createApiClient(authBaseUrl);
                     return [4 /*yield*/, apiClient.post("token", {
                             grant_type: "refresh_token",
                             refresh_token: refreshToken,
                             client_id: clientId,
                         })];
-                case 3:
+                case 2:
                     response = _a.sent();
                     setToken("access_token", response.data.access_token);
                     if (response.data.refresh_token) {
@@ -6258,10 +6267,10 @@
                         setToken("id_token", response.data.id_token);
                     }
                     return [2 /*return*/, response.data];
-                case 4:
+                case 3:
                     error_3 = _a.sent();
                     throw parseApiError(error_3, "Failed to refresh token", "refresh_failed");
-                case 5: return [2 /*return*/];
+                case 4: return [2 /*return*/];
             }
         });
     }); };
@@ -6340,7 +6349,8 @@
      * This is a quick local check based on JWT expiration.
      * @returns True if the token appears valid locally, false otherwise.
      */
-    var isTokenValid = function () {
+    var isTokenValid = function (minValiditySeconds) {
+        if (minValiditySeconds === void 0) { minValiditySeconds = 0; }
         var token = getToken("access_token");
         if (!token)
             return false;
@@ -6351,7 +6361,7 @@
         var expiration = parseExp(exp);
         if (!expiration)
             return false;
-        return expiration > new Date();
+        return expiration.getTime() > Date.now() + Math.max(0, minValiditySeconds) * 1000;
     };
     /**
      * Validates an access token by introspecting it with the authorization server.
@@ -6374,35 +6384,6 @@
                 case 1:
                     _a.trys.push([1, 3, , 4]);
                     return [4 /*yield*/, introspectToken(token, "access_token", clientId, clientSecret, authBaseUrl)];
-                case 2: return [2 /*return*/, _a.sent()];
-                case 3:
-                    _a.sent();
-                    // If introspection fails, token is considered invalid
-                    return [2 /*return*/, { active: false }];
-                case 4: return [2 /*return*/];
-            }
-        });
-    }); };
-    /**
-     * Validates a refresh token by introspecting it with the authorization server.
-     * @param clientId - The client ID.
-     * @param clientSecret - The client secret (optional for public clients).
-     * @returns Promise that resolves to introspection result.
-     * @throws BlitzWareAuthError if validation fails.
-     */
-    var validateRefreshToken = function (clientId, clientSecret, authBaseUrl) { return __awaiter(void 0, void 0, void 0, function () {
-        var token;
-        return __generator(this, function (_a) {
-            switch (_a.label) {
-                case 0:
-                    token = getToken("refresh_token");
-                    if (!token) {
-                        return [2 /*return*/, { active: false }];
-                    }
-                    _a.label = 1;
-                case 1:
-                    _a.trys.push([1, 3, , 4]);
-                    return [4 /*yield*/, introspectToken(token, "refresh_token", clientId, clientSecret, authBaseUrl)];
                 case 2: return [2 /*return*/, _a.sent()];
                 case 3:
                     _a.sent();
@@ -6557,18 +6538,248 @@
         });
     }); };
 
+    var DEFAULT_MIN_VALIDITY_SECONDS = 60;
+    var LEASE_DURATION_MS = 30000;
+    var LEASE_RETRY_MS = 50;
+    var inFlightRefreshes = new Map();
+    var defaultDependencies = {
+        clearSession: clearSession,
+        getToken: getToken,
+        isTokenValid: isTokenValid,
+        tryRefreshToken: tryRefreshToken,
+    };
+    var wait = function (milliseconds) {
+        return new Promise(function (resolve) { return globalThis.setTimeout(resolve, milliseconds); });
+    };
+    var isTerminalRefreshError = function (error) {
+        var _a;
+        if (!error || typeof error !== "object")
+            return false;
+        var authError = error;
+        var oauthError = typeof ((_a = authError.details) === null || _a === void 0 ? void 0 : _a["error"]) === "string"
+            ? authError.details["error"]
+            : authError.code;
+        return [
+            "invalid_grant",
+            "invalid_token",
+            "no_refresh_token",
+            "refresh_token_inactive",
+        ].includes(oauthError);
+    };
+    var withStorageLease = function (lockName, callback) { return __awaiter(void 0, void 0, void 0, function () {
+        var leaseKey, owner, now, current, claimed, heartbeat, lease;
+        var _a, _b, _c, _d, _e, _f;
+        return __generator(this, function (_g) {
+            switch (_g.label) {
+                case 0:
+                    leaseKey = "blitzware_refresh_lock:".concat(lockName);
+                    owner = (_c = (_b = (_a = globalThis.crypto) === null || _a === void 0 ? void 0 : _a.randomUUID) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : "".concat(Date.now(), "-").concat(Math.random().toString(36).slice(2));
+                    _g.label = 1;
+                case 1:
+                    now = Date.now();
+                    current = null;
+                    try {
+                        current = JSON.parse((_d = localStorage.getItem(leaseKey)) !== null && _d !== void 0 ? _d : "null");
+                    }
+                    catch (_h) {
+                        current = null;
+                    }
+                    if (!(!(current === null || current === void 0 ? void 0 : current.owner) || Number(current.expiresAt) <= now)) return [3 /*break*/, 5];
+                    localStorage.setItem(leaseKey, JSON.stringify({ owner: owner, expiresAt: now + LEASE_DURATION_MS }));
+                    claimed = JSON.parse((_e = localStorage.getItem(leaseKey)) !== null && _e !== void 0 ? _e : "null");
+                    if (!((claimed === null || claimed === void 0 ? void 0 : claimed.owner) === owner)) return [3 /*break*/, 5];
+                    heartbeat = globalThis.setInterval(function () {
+                        var _a;
+                        try {
+                            var lease = JSON.parse((_a = localStorage.getItem(leaseKey)) !== null && _a !== void 0 ? _a : "null");
+                            if ((lease === null || lease === void 0 ? void 0 : lease.owner) === owner) {
+                                localStorage.setItem(leaseKey, JSON.stringify({
+                                    owner: owner,
+                                    expiresAt: Date.now() + LEASE_DURATION_MS,
+                                }));
+                            }
+                        }
+                        catch (_b) {
+                            // The refresh can continue even if storage becomes unavailable.
+                        }
+                    }, LEASE_DURATION_MS / 3);
+                    _g.label = 2;
+                case 2:
+                    _g.trys.push([2, , 4, 5]);
+                    return [4 /*yield*/, callback()];
+                case 3: return [2 /*return*/, _g.sent()];
+                case 4:
+                    globalThis.clearInterval(heartbeat);
+                    try {
+                        lease = JSON.parse((_f = localStorage.getItem(leaseKey)) !== null && _f !== void 0 ? _f : "null");
+                        if ((lease === null || lease === void 0 ? void 0 : lease.owner) === owner)
+                            localStorage.removeItem(leaseKey);
+                    }
+                    catch (_j) {
+                        // Nothing else can be done when storage is unavailable.
+                    }
+                    return [7 /*endfinally*/];
+                case 5: return [4 /*yield*/, wait(LEASE_RETRY_MS + Math.floor(Math.random() * LEASE_RETRY_MS))];
+                case 6:
+                    _g.sent();
+                    return [3 /*break*/, 1];
+                case 7: return [2 /*return*/];
+            }
+        });
+    }); };
+    var withCrossTabLock = function (lockName, callback) { return __awaiter(void 0, void 0, void 0, function () {
+        var lockManager;
+        var _a;
+        return __generator(this, function (_b) {
+            lockManager = (_a = globalThis.navigator) === null || _a === void 0 ? void 0 : _a.locks;
+            if (lockManager)
+                return [2 /*return*/, lockManager.request(lockName, callback)];
+            return [2 /*return*/, withStorageLease(lockName, callback)];
+        });
+    }); };
+    var createAccessTokenManager = function (authParams, callbacks, dependencies) {
+        if (dependencies === void 0) { dependencies = defaultDependencies; }
+        var clearStoredSession = dependencies.clearSession, getStoredToken = dependencies.getToken, isStoredTokenValid = dependencies.isTokenValid, refreshStoredToken = dependencies.tryRefreshToken;
+        var lockName = "blitzware-token-refresh:".concat(authParams.clientId);
+        var expireSession = function () {
+            clearStoredSession();
+            callbacks.onSessionExpired();
+        };
+        var refreshUnderLock = function (options) { return __awaiter(void 0, void 0, void 0, function () {
+            return __generator(this, function (_a) {
+                return [2 /*return*/, withCrossTabLock(lockName, function () { return __awaiter(void 0, void 0, void 0, function () {
+                        var minValiditySeconds, currentToken, response, error_1;
+                        var _a;
+                        return __generator(this, function (_b) {
+                            switch (_b.label) {
+                                case 0:
+                                    minValiditySeconds = (_a = options.minValiditySeconds) !== null && _a !== void 0 ? _a : DEFAULT_MIN_VALIDITY_SECONDS;
+                                    currentToken = getStoredToken("access_token");
+                                    if (options.forceRefresh
+                                        && options.rejectedToken
+                                        && currentToken
+                                        && currentToken !== options.rejectedToken
+                                        && isStoredTokenValid(minValiditySeconds)) {
+                                        return [2 /*return*/, currentToken];
+                                    }
+                                    if (!options.forceRefresh && isStoredTokenValid(minValiditySeconds)) {
+                                        return [2 /*return*/, currentToken];
+                                    }
+                                    if (!getStoredToken("refresh_token")) {
+                                        expireSession();
+                                        return [2 /*return*/, null];
+                                    }
+                                    _b.label = 1;
+                                case 1:
+                                    _b.trys.push([1, 3, , 4]);
+                                    return [4 /*yield*/, refreshStoredToken(authParams.clientId, undefined, authParams.authBaseUrl)];
+                                case 2:
+                                    response = _b.sent();
+                                    callbacks.onSessionRefreshed();
+                                    return [2 /*return*/, response.access_token];
+                                case 3:
+                                    error_1 = _b.sent();
+                                    if (isTerminalRefreshError(error_1)) {
+                                        expireSession();
+                                        return [2 /*return*/, null];
+                                    }
+                                    throw error_1;
+                                case 4: return [2 /*return*/];
+                            }
+                        });
+                    }); })];
+            });
+        }); };
+        var getAccessToken = function () {
+            var args_1 = [];
+            for (var _i = 0; _i < arguments.length; _i++) {
+                args_1[_i] = arguments[_i];
+            }
+            return __awaiter(void 0, __spreadArray([], args_1, true), void 0, function (options) {
+                var minValiditySeconds, currentToken, existing, refresh;
+                var _a;
+                if (options === void 0) { options = {}; }
+                return __generator(this, function (_b) {
+                    minValiditySeconds = (_a = options.minValiditySeconds) !== null && _a !== void 0 ? _a : DEFAULT_MIN_VALIDITY_SECONDS;
+                    currentToken = getStoredToken("access_token");
+                    if (options.forceRefresh
+                        && options.rejectedToken
+                        && currentToken
+                        && currentToken !== options.rejectedToken
+                        && isStoredTokenValid(minValiditySeconds)) {
+                        return [2 /*return*/, currentToken];
+                    }
+                    if (!options.forceRefresh && isStoredTokenValid(minValiditySeconds)) {
+                        return [2 /*return*/, currentToken];
+                    }
+                    if (!currentToken && !getStoredToken("refresh_token"))
+                        return [2 /*return*/, null];
+                    existing = inFlightRefreshes.get(lockName);
+                    if (existing)
+                        return [2 /*return*/, existing];
+                    refresh = refreshUnderLock(options).finally(function () {
+                        if (inFlightRefreshes.get(lockName) === refresh) {
+                            inFlightRefreshes.delete(lockName);
+                        }
+                    });
+                    inFlightRefreshes.set(lockName, refresh);
+                    return [2 /*return*/, refresh];
+                });
+            });
+        };
+        var handleStorage = function (event) {
+            if (event.storageArea !== localStorage)
+                return;
+            if (event.key !== "access_token" && event.key !== "refresh_token")
+                return;
+            if (!getStoredToken("access_token") && !getStoredToken("refresh_token")) {
+                callbacks.onSessionExpired();
+            }
+            else if (isStoredTokenValid()) {
+                callbacks.onSessionRefreshed();
+            }
+        };
+        var listening = false;
+        return {
+            getAccessToken: getAccessToken,
+            start: function () {
+                var _a;
+                if (listening)
+                    return;
+                listening = true;
+                (_a = globalThis.addEventListener) === null || _a === void 0 ? void 0 : _a.call(globalThis, "storage", handleStorage);
+            },
+            dispose: function () {
+                var _a;
+                if (!listening)
+                    return;
+                listening = false;
+                (_a = globalThis.removeEventListener) === null || _a === void 0 ? void 0 : _a.call(globalThis, "storage", handleStorage);
+            },
+        };
+    };
+
     var BlitzWareAuth = /** @class */ (function () {
         function BlitzWareAuth(authParams) {
+            var _this = this;
             this.user = null;
             this.isAuthenticated = isTokenValid();
             this.isLoading = true;
             this.didInitialize = false;
             this.authParams = authParams;
             this.state = getState() || generateSecureState();
+            this.accessTokenManager = createAccessTokenManager(authParams, {
+                onSessionExpired: function () {
+                    _this.setIsAuthenticated(false);
+                    _this.setUser(null);
+                },
+                onSessionRefreshed: function () { return _this.setIsAuthenticated(true); },
+            });
+            this.accessTokenManager.start();
         }
         BlitzWareAuth.prototype.initializeAuth = function () {
             return __awaiter(this, void 0, void 0, function () {
-                var userData, tokenResponse, userData, error_2;
+                var userData, token, userData, error_1, error_2;
                 return __generator(this, function (_a) {
                     switch (_a.label) {
                         case 0:
@@ -6588,16 +6799,11 @@
                             return [3 /*break*/, 7];
                         case 3:
                             _a.trys.push([3, 6, , 7]);
-                            return [4 /*yield*/, tryRefreshToken(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
+                            return [4 /*yield*/, this.getAccessToken({ minValiditySeconds: 0 })];
                         case 4:
-                            tokenResponse = _a.sent();
-                            setToken("access_token", tokenResponse.access_token);
-                            if (tokenResponse.refresh_token) {
-                                setToken("refresh_token", tokenResponse.refresh_token);
-                            }
-                            if (tokenResponse.id_token) {
-                                setToken("id_token", tokenResponse.id_token);
-                            }
+                            token = _a.sent();
+                            if (!token)
+                                return [2 /*return*/];
                             return [4 /*yield*/, fetchUserInfo(this.authParams.clientId, undefined, this.authParams.authBaseUrl)];
                         case 5:
                             userData = _a.sent();
@@ -6605,10 +6811,8 @@
                             this.setIsAuthenticated(true);
                             return [3 /*break*/, 7];
                         case 6:
-                            _a.sent();
-                            // Refresh failed, clear tokens
-                            clearSession();
-                            this.setIsAuthenticated(false);
+                            error_1 = _a.sent();
+                            console.error("Authentication refresh failed:", error_1);
                             return [3 /*break*/, 7];
                         case 7: return [3 /*break*/, 10];
                         case 8:
@@ -6777,6 +6981,9 @@
         };
         BlitzWareAuth.prototype.getIsLoading = function () {
             return this.isLoading;
+        };
+        BlitzWareAuth.prototype.getAccessToken = function (options) {
+            return this.accessTokenManager.getAccessToken(options);
         };
         /**
          * Check if the current user has specific role(s)
@@ -7069,6 +7276,9 @@
                                         return [2 /*return*/, blitzWareClient.logout()];
                                     });
                                 }); },
+                                getAccessToken: function (options) {
+                                    return blitzWareClient.getAccessToken(options);
+                                },
                                 getUser: function () {
                                     return blitzWareClient.getUser();
                                 },

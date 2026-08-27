@@ -4,6 +4,11 @@ export interface BlitzWareAuthParams {
     redirectUri: string;
     authBaseUrl?: string;
 }
+export interface GetAccessTokenOptions {
+    minValiditySeconds?: number;
+    forceRefresh?: boolean;
+    rejectedToken?: string;
+}
 export interface BlitzWareAuthUser {
     id: string;
     username: string;

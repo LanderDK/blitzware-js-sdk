@@ -1,5 +1,5 @@
 import { BlitzWareAuth } from "./BlitzWareAuth";
-import { BlitzWareAuthParams } from "./types";
+import { BlitzWareAuthParams, GetAccessTokenOptions } from "./types";
 
 export async function createBlitzWareClient(authParams: BlitzWareAuthParams) {
   const blitzWareClient = new BlitzWareAuth(authParams);
@@ -14,6 +14,9 @@ export async function createBlitzWareClient(authParams: BlitzWareAuthParams) {
     },
     logout: async () => {
       return blitzWareClient.logout();
+    },
+    getAccessToken: (options?: GetAccessTokenOptions) => {
+      return blitzWareClient.getAccessToken(options);
     },
     getUser: () => {
       return blitzWareClient.getUser();

@@ -2,6 +2,7 @@ import {
   BlitzWareAuthParams,
   BlitzWareAuthUser,
   BlitzWareAuthError,
+  GetAccessTokenOptions,
 } from "./types";
 import {
   generateAuthUrl,
@@ -12,11 +13,11 @@ import {
   getState,
   fetchUserInfo,
   exchangeCodeForToken,
-  tryRefreshToken,
   generateSecureState,
   logoutFromService,
   clearSession,
 } from "./utils";
+import { createAccessTokenManager } from "./tokenManager";
 
 export class BlitzWareAuth {
   private authParams: BlitzWareAuthParams;
@@ -25,10 +26,19 @@ export class BlitzWareAuth {
   private isAuthenticated = isTokenValid();
   private isLoading: boolean = true;
   private didInitialize = false;
+  private accessTokenManager: ReturnType<typeof createAccessTokenManager>;
 
   constructor(authParams: BlitzWareAuthParams) {
     this.authParams = authParams;
     this.state = getState() || generateSecureState();
+    this.accessTokenManager = createAccessTokenManager(authParams, {
+      onSessionExpired: () => {
+        this.setIsAuthenticated(false);
+        this.setUser(null);
+      },
+      onSessionRefreshed: () => this.setIsAuthenticated(true),
+    });
+    this.accessTokenManager.start();
   }
 
   private async initializeAuth(): Promise<void> {
@@ -47,19 +57,8 @@ export class BlitzWareAuth {
           this.setIsAuthenticated(true);
         } else {
           try {
-            const tokenResponse = await tryRefreshToken(
-              this.authParams.clientId,
-              undefined,
-              this.authParams.authBaseUrl
-            );
-            setToken("access_token", tokenResponse.access_token);
-            if (tokenResponse.refresh_token) {
-              setToken("refresh_token", tokenResponse.refresh_token);
-            }
-            if (tokenResponse.id_token) {
-              setToken("id_token", tokenResponse.id_token);
-            }
-
+            const token = await this.getAccessToken({ minValiditySeconds: 0 });
+            if (!token) return;
             const userData = await fetchUserInfo(
               this.authParams.clientId,
               undefined,
@@ -68,9 +67,7 @@ export class BlitzWareAuth {
             this.setUser(userData);
             this.setIsAuthenticated(true);
           } catch (error) {
-            // Refresh failed, clear tokens
-            clearSession();
-            this.setIsAuthenticated(false);
+            console.error("Authentication refresh failed:", error);
           }
         }
       }
@@ -238,6 +235,10 @@ export class BlitzWareAuth {
 
   getIsLoading(): boolean {
     return this.isLoading;
+  }
+
+  getAccessToken(options?: GetAccessTokenOptions): Promise<string | null> {
+    return this.accessTokenManager.getAccessToken(options);
   }
 
   /**

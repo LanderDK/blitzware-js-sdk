@@ -1,4 +1,4 @@
-import { BlitzWareAuthParams, BlitzWareAuthUser } from "./types";
+import { BlitzWareAuthParams, BlitzWareAuthUser, GetAccessTokenOptions } from "./types";
 export declare class BlitzWareAuth {
     private authParams;
     private state;
@@ -6,6 +6,7 @@ export declare class BlitzWareAuth {
     private isAuthenticated;
     private isLoading;
     private didInitialize;
+    private accessTokenManager;
     constructor(authParams: BlitzWareAuthParams);
     private initializeAuth;
     handleRedirect(): Promise<void>;
@@ -17,6 +18,7 @@ export declare class BlitzWareAuth {
     getIsAuthenticated(): boolean;
     private setIsLoading;
     getIsLoading(): boolean;
+    getAccessToken(options?: GetAccessTokenOptions): Promise<string | null>;
     /**
      * Check if the current user has specific role(s)
      * @param role - Single role string or array of roles
